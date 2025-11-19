@@ -1,15 +1,6 @@
 const { Schema, model } = require('mongoose');
 
 const DesignAssetSchema = new Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    default: ''
-  },
   imageUrl: {
     type: String,
     required: true
@@ -19,10 +10,6 @@ const DesignAssetSchema = new Schema({
     enum: ['hero', 'banner', 'card', 'background', 'icon', 'other'],
     default: 'other'
   },
-  tags: [{
-    type: String,
-    trim: true
-  }],
   isActive: {
     type: Boolean,
     default: true

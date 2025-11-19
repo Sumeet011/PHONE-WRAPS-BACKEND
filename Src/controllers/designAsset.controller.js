@@ -23,11 +23,10 @@ exports.create = asyncHandler(async (req, res) => {
 });
 
 exports.list = asyncHandler(async (req, res) => {
-  const { category, isActive, tags, limit, page } = req.query;
+  const { category, isActive, limit, page } = req.query;
   const result = await getAllDesignAssets({ 
     category, 
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
-    tags: tags ? tags.split(',') : undefined,
     limit: limit ? parseInt(limit) : undefined,
     page: page ? parseInt(page) : undefined
   });
