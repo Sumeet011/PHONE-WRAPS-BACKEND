@@ -180,7 +180,7 @@ router.get('/profile', protect, getProfile);
 
 /**
  * @route   GET /api/users/profile/:userId
- * @desc    Get user profile by ID
+ * @desc    Get user profile by IDw
  * @access  Public
  */
 router.get('/profile/:userId', getProfile);

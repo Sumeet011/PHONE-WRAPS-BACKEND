@@ -36,6 +36,7 @@ const orderRouter = require('./routes/order.routes');
 const couponRoutes = require('./routes/coupon.routes');
 const customDesignRoutes = require('./routes/customDesign.routes');
 const blogRoutes = require('./routes/blog.routes');
+const designAssetRoutes = require('./routes/designAsset.routes');
 
 // Create Express app
 const app = express();
@@ -68,6 +69,7 @@ app.use('/api/orders', orderRouter);
 app.use('/api/coupon', couponRoutes);
 app.use('/api/custom-design', customDesignRoutes);
 app.use('/api/blogs', blogRoutes);
+app.use('/api/design-assets', designAssetRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {
