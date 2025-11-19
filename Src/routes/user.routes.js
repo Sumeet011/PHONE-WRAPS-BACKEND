@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const { upload } = require('../config/cloudinary');
 
 // Import all controllers
 const {
@@ -13,6 +14,7 @@ const {
   resendOTP,
   getProfile,
   updateProfile,
+  uploadProfilePicture,
   addAddress,
   updateAddress,
   deleteAddress,
@@ -177,6 +179,13 @@ router.post('/resend-otp', resendOTP);
 router.get('/profile', protect, getProfile);
 
 /**
+ * @route   GET /api/users/profile/:userId
+ * @desc    Get user profile by ID
+ * @access  Public
+ */
+router.get('/profile/:userId', getProfile);
+
+/**
  * @route   PUT /api/users/profile
  * @desc    Update user profile
  * @access  Private
@@ -184,6 +193,15 @@ router.get('/profile', protect, getProfile);
  * @headers Authorization: Bearer <token>
  */
 router.put('/profile', protect, updateProfile);
+
+/**
+ * @route   POST /api/users/upload-profile-picture
+ * @desc    Upload user profile picture
+ * @access  Private
+ * @body    FormData with profileImage file and userId
+ * @headers Authorization: Bearer <token>
+ */
+router.post('/upload-profile-picture', upload.single('profileImage'), uploadProfilePicture);
 
 /**
  * @route   POST /api/users/logout

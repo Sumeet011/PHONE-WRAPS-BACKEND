@@ -314,7 +314,7 @@ exports.resendOTP = asyncHandler(async (req, res) => {
  * @access  Private
  */
 exports.getProfile = asyncHandler(async (req, res) => {
-  const userId = req.user._id || req.user.id;
+  const userId = req.params.userId || req.user?._id || req.user?.id;
 
   const user = await User.findById(userId);
 
@@ -329,11 +329,16 @@ exports.getProfile = asyncHandler(async (req, res) => {
     success: true,
     data: {
       id: user._id,
-      name: user.name,
+      username: user.username,
+      name: user.username,
       email: user.email || '',
-      phone: user.phone || '',
+      phoneNumber: user.phoneNumber || '',
+      phone: user.phoneNumber || '',
       role: user.role,
-      isVerified: user.isVerified,
+      isVerified: user.emailVerified,
+      profilePicture: user.profilePicture || null,
+      score: user.score || 0,
+      rank: user.score || 0,
       addresses: user.addresses || [],
       createdAt: user.createdAt
     }
@@ -389,6 +394,60 @@ exports.updateProfile = asyncHandler(async (req, res) => {
       role: user.role
     }
   });
+});
+
+/**
+ * @route   POST /api/users/upload-profile-picture
+ * @desc    Upload user profile picture
+ * @access  Public (protected by userId)
+ */
+exports.uploadProfilePicture = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: 'User ID is required'
+    });
+  }
+
+  if (!req.file || !req.file.path) {
+    return res.status(400).json({
+      success: false,
+      message: 'No image file uploaded'
+    });
+  }
+
+  try {
+    // Find user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update profile picture with Cloudinary URL
+    user.profilePicture = req.file.path;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      data: {
+        profilePicture: user.profilePicture
+      }
+    });
+  } catch (error) {
+    console.error('Error uploading profile picture:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload profile picture',
+      error: error.message
+    });
+  }
 });
 
 /**
