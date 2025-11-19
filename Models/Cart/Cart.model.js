@@ -59,17 +59,15 @@ const CartItemSchema = new Schema({
 const CartSchema = new Schema({
   userId: {
     type: String, // ✅ Changed from ObjectId to String
-    required: true,
-    unique: true,
-    index: true
+    required: true
   },
   items: [CartItemSchema]
 }, {
   timestamps: true
 });
 
-// Index for faster queries
-CartSchema.index({ userId: 1 });
+// Index for faster queries (unique because one cart per user)
+CartSchema.index({ userId: 1 }, { unique: true });
 
 const Cart = model('Cart', CartSchema);
 module.exports = Cart;

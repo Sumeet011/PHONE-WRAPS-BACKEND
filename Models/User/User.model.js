@@ -10,14 +10,12 @@ const UserSchema = new Schema({
     },
     phoneNumber: {
         type: String,
-        sparse: true, // Allows multiple null values but unique non-null values
         trim: true
     },
     email: {
         type: String,
         trim: true,
         lowercase: true,
-        sparse: true, // Allows multiple null values but unique non-null values
         match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
     },
     password: {

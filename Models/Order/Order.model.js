@@ -4,13 +4,10 @@ const OrderSummarySchema = new Schema({
     // Order Identification
     orderId: {
         type: String,
-        required: true,
-        unique: true,
-        index: true
+        required: true
     },
     orderNumber: {
         type: String,
-        unique: true,
         // Format: ORD-YYYY-XXXX (e.g., ORD-2025-0001)
     },
     
@@ -18,8 +15,7 @@ const OrderSummarySchema = new Schema({
     userId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
-        required: true,
-        index: true
+        required: true
     },
     
     // Order Items Details
@@ -127,8 +123,7 @@ const OrderSummarySchema = new Schema({
         type: String,
         required: true,
         enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled', 'Refunded', 'Failed'],
-        default: 'Pending',
-        index: true
+        default: 'Pending'
     },
     
     // Status History (Audit Trail)
@@ -155,8 +150,7 @@ const OrderSummarySchema = new Schema({
         type: String,
         required: true,
         enum: ['Pending', 'Paid', 'Failed', 'Refunded', 'Partially Refunded'],
-        default: 'Pending',
-        index: true
+        default: 'Pending'
     },
     isPaid: {
         type: Boolean,
@@ -298,9 +292,7 @@ const OrderSummarySchema = new Schema({
     
     // Invoice & Documentation
     invoiceNumber: {
-        type: String,
-        unique: true,
-        sparse: true
+        type: String
     },
     invoiceUrl: {
         type: String
@@ -322,8 +314,7 @@ const OrderSummarySchema = new Schema({
     // Timestamps
     createdAt: {
         type: Date,
-        default: Date.now,
-        index: true
+        default: Date.now
     },
     updatedAt: {
         type: Date,
@@ -334,11 +325,13 @@ const OrderSummarySchema = new Schema({
 });
 
 // Indexes for better query performance
+OrderSummarySchema.index({ orderId: 1 }, { unique: true });
+OrderSummarySchema.index({ orderNumber: 1 }, { unique: true, sparse: true });
+OrderSummarySchema.index({ invoiceNumber: 1 }, { unique: true, sparse: true });
 OrderSummarySchema.index({ userId: 1, createdAt: -1 });
 OrderSummarySchema.index({ status: 1, createdAt: -1 });
 OrderSummarySchema.index({ paymentStatus: 1 });
 OrderSummarySchema.index({ 'shippingAddress.phoneNumber': 1 });
-OrderSummarySchema.index({ orderNumber: 1 });
 
 // Pre-save middleware to generate order number
 OrderSummarySchema.pre('save', async function(next) {
