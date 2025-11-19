@@ -17,12 +17,6 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
-console.log('✅ Environment variables loaded');
-console.log('Cloudinary Config:', {
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY?.substring(0, 5) + '...',
-  api_secret: process.env.CLOUDINARY_API_SECRET ? '***' : 'MISSING'
-});
 
 // NOW load custom modules that depend on env vars
 const { connectDB } = require('./config/db');
