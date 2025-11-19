@@ -3,8 +3,8 @@
  * Provides JWT verification and authorization
  */
 const jwt = require('jsonwebtoken');
-const { AppError } = require('./errors');
-const logger = require('./logger');
+const { AppError } = require('../utils/errors');
+const logger = require('../utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
@@ -93,9 +93,13 @@ const authorize = (...allowedRoles) => {
   };
 };
 
+// Convenience middleware for admin-only routes
+const adminAuth = authorize(['admin']);
+
 module.exports = {
   generateToken,
   verifyToken,
   optionalAuth,
-  authorize
+  authorize,
+  adminAuth
 };
