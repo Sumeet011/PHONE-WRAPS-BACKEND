@@ -1,12 +1,15 @@
 const { Router } = require('express');
 const controller = require('../controllers/collection.controller');
+const { upload } = require('../config/cloudinary');
 
 const router = Router();
 
 router.get('/', controller.list);
 router.get('/:id', controller.getById);
-router.post('/', controller.create);
-router.patch('/:id', controller.update);
+
+// Add multer middleware for hero image upload
+router.post('/', upload.single('heroImage'), controller.create);
+router.patch('/:id', upload.single('heroImage'), controller.update);
 router.delete('/:id', controller.remove);
 
 // Special routes for managing products in collections

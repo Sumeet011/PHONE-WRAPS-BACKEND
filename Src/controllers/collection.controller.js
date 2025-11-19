@@ -11,11 +11,19 @@ const {
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 exports.create = asyncHandler(async (req, res) => {
+  // Add hero image URL if uploaded
+  if (req.file && req.file.path) {
+    req.body.heroImage = req.file.path;
+  }
   const doc = await createCollection(req.body);
   res.status(201).json({ success: true, data: doc });
 });
 
 exports.update = asyncHandler(async (req, res) => {
+  // Add hero image URL if uploaded
+  if (req.file && req.file.path) {
+    req.body.heroImage = req.file.path;
+  }
   const doc = await updateCollection(req.params.id, req.body);
   res.status(200).json({ success: true, data: doc });
 });

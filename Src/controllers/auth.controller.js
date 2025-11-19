@@ -345,6 +345,31 @@ exports.verifyPhoneOTP = async (req, res) => {
 // Login with Email & Password (alias for compatibility)
 exports.loginemailpass = exports.login;
 
+exports.adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body; 
+    if (email === 'PHONEWRAPS@phonwrap.com' && password === 'PHONWRAPSADMIN123') {
+      const token = jwt.sign(
+        { userId: 'admin-id', email: email },
+        JWT_SECRET
+      );
+      return res.status(200).json({
+        success: true,
+        message: 'Admin login successful',
+        token
+      });
+    } else {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid admin credentials'
+      });
+    }
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({ success: false, message: 'Server error during admin login', error: error.message });
+  }
+};
+
 // Sign Up With Phone OTP
 exports.signupphoneotp = async (req, res) => {
   try {
@@ -416,3 +441,5 @@ exports.verifyToken = (req, res, next) => {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
+
+

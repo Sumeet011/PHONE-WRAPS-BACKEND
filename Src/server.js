@@ -35,6 +35,7 @@ const cartRoutes = require('./routes/cart.routes');
 const orderRouter = require('./routes/order.routes');
 const couponRoutes = require('./routes/coupon.routes');
 const customDesignRoutes = require('./routes/customDesign.routes');
+const blogRoutes = require('./routes/blog.routes');
 
 // Create Express app
 const app = express();
@@ -54,7 +55,7 @@ app.use(cors({
   origin: ['http://localhost:4000', 'http://localhost:3001', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'User-Id']
+  allowedHeaders: ['Content-Type', 'Authorization', 'User-Id', 'token']
 }));
 
 // Routes
@@ -66,6 +67,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRouter);
 app.use('/api/coupon', couponRoutes);
 app.use('/api/custom-design', customDesignRoutes);
+app.use('/api/blogs', blogRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {

@@ -5,6 +5,10 @@ const CollectionSchema = new Schema({
         type: String,
         required: true,
     },
+    heroImage: {
+        type: String,
+        default: null,
+    },
     Products:[{
         type: Schema.Types.ObjectId,
         ref: 'Product'

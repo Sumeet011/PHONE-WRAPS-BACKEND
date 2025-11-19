@@ -15,5 +15,7 @@ router.post('/send-phone-otp', authController.loginphoneotp);
 router.post('/verify-phone-otp', authController.verifyPhoneOTP);
 router.post('/signupphoneotp', authController.signupphoneotp);
 
+router.post('/admin', authController.adminLogin);
+
 module.exports = router;
     
