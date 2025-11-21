@@ -1,4 +1,6 @@
 const Cart = require('../../Models/Cart/Cart.model');
+const Product = require('../../Models/Products/Product.model');
+const Collection = require('../../Models/Collection/Collection.model');
 
 /**
  * Helper: Async wrapper for error handling
@@ -19,13 +21,72 @@ exports.getCart = asyncHandler(async (req, res) => {
     cart = await Cart.create({ userId, items: [] });
   }
 
+  // Populate product/collection details for each item
+  const populatedItems = await Promise.all(
+    cart.items.map(async (item) => {
+      let productDetails = null;
+      const itemObj = item.toObject();
+      
+      try {
+        if (item.type === 'product') {
+          // productId is the MongoDB _id as a string
+          productDetails = await Product.findById(item.productId).select('name image price').lean();
+          if (!productDetails) {
+            console.warn(`⚠️ Product not found for ID: ${item.productId}`);
+          }
+          // Clean up: products shouldn't have customDesign
+          delete itemObj.customDesign;
+        } else if (item.type === 'collection') {
+          productDetails = await Collection.findById(item.productId).select('name heroImage').lean();
+          if (!productDetails) {
+            console.warn(`⚠️ Collection not found for ID: ${item.productId}`);
+          } else {
+            // Map heroImage to image for consistent frontend handling
+            productDetails.image = productDetails.heroImage;
+          }
+          // Clean up: collections shouldn't have customDesign
+          delete itemObj.customDesign;
+        } else if (item.type === 'custom-design') {
+          // For custom designs, use the design image from the item itself
+          productDetails = {
+            name: 'Custom Design',
+            image: item.customDesign?.designImageUrl || item.customDesign?.originalImageUrl
+          };
+          
+          if (!productDetails.image) {
+            console.warn(`⚠️ Custom design has no image: ${item.productId}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Error fetching ${item.type} details for ${item.productId}:`, error.message);
+      }
+      
+      return {
+        ...itemObj,
+        productDetails
+      };
+    })
+  );
+
   // Calculate total
-  const total = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const total = populatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  // Debug logging
+  console.log('Cart items with product details:', JSON.stringify(populatedItems.map(item => ({
+    type: item.type,
+    productId: item.productId,
+    hasProductDetails: !!item.productDetails,
+    productName: item.productDetails?.name,
+    image: item.productDetails?.image,
+    customDesignEmpty: item.type !== 'custom-design' && item.customDesign ? 
+      (item.customDesign.designImageUrl === '' && item.customDesign.originalImageUrl === '') : 'N/A'
+  })), null, 2));
 
   res.status(200).json({ 
     success: true, 
     data: {
-      ...cart.toObject(),
+      userId: cart.userId,
+      items: populatedItems,
       total,
       itemCount: cart.items.length
     }
@@ -40,8 +101,8 @@ exports.getCart = asyncHandler(async (req, res) => {
 exports.addItem = asyncHandler(async (req, res) => {
   const userId = req.user._id || req.user.id;
   
-  const { type, productId, quantity = 1, selectedBrand, selectedModel, price } = req.body;
-  console.log(req.body);
+  const { type, productId, quantity = 1, selectedBrand, selectedModel, price, customDesign } = req.body;
+  console.log('Adding item to cart:', { type, productId, quantity, selectedBrand, selectedModel });
 
   if (!productId || !price) {
     return res.status(400).json({ 
@@ -50,10 +111,18 @@ exports.addItem = asyncHandler(async (req, res) => {
     });
   }
 
-  if (!type || !['product', 'collection'].includes(type)) {
+  if (!type || !['product', 'collection', 'custom-design'].includes(type)) {
     return res.status(400).json({ 
       success: false, 
-      message: 'Type must be either "product" or "collection"' 
+      message: 'Type must be "product", "collection", or "custom-design"' 
+    });
+  }
+
+  // Validate custom-design specific requirements
+  if (type === 'custom-design' && !customDesign?.designImageUrl) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Custom design must include designImageUrl' 
     });
   }
 
@@ -74,15 +143,27 @@ exports.addItem = asyncHandler(async (req, res) => {
     // Update quantity
     cart.items[existingItemIndex].quantity += quantity;
   } else {
-    // Add new item
-    cart.items.push({ 
+    // Add new item with appropriate structure based on type
+    const newItem = { 
       type, 
       productId, 
       quantity, 
       selectedBrand: selectedBrand || '', 
       selectedModel: selectedModel || '', 
-      price 
-    });
+      price
+    };
+    
+    // Only include customDesign object for custom-design type
+    if (type === 'custom-design' && customDesign) {
+      newItem.customDesign = {
+        designImageUrl: customDesign.designImageUrl || '',
+        originalImageUrl: customDesign.originalImageUrl || '',
+        phoneModel: customDesign.phoneModel || '',
+        transform: customDesign.transform || { x: 0, y: 0, scale: 1, rotation: 0 }
+      };
+    }
+    
+    cart.items.push(newItem);
   }
 
   await cart.save();

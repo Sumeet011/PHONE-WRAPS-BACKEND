@@ -1,6 +1,9 @@
 const orderModel = require("../../Models/Order/Order.model.js");
 const userModel = require("../../Models/User/User.model.js");
+const cartModel = require("../../Models/Cart/Cart.model.js");
 const couponModel = require("../../Models/Coupon/Coupon.model.js");
+const productModel = require("../../Models/Products/Product.model.js");
+const collectionModel = require("../../Models/Collection/Collection.model.js");
 const { useCoupon } = require("./coupon.controller.js");
 const Razorpay = require('razorpay');
 const validator = require("validator");
@@ -81,6 +84,100 @@ const calculateOrderTotal = (items, deliveryFee = 0, discount = 0) => {
     
     const finalTotal = subtotal + deliveryFee - discount;
     return finalTotal < 0 ? 0 : finalTotal;
+};
+
+/**
+ * Process collection items and convert to actual product orders
+ * If quantity >= 5: User gets ALL cards in collection
+ * If quantity < 5: User gets random unique gaming cards not owned yet
+ */
+const processCollectionItems = async (userId, collectionItem) => {
+    try {
+        const { productId: collectionId, quantity, selectedBrand, selectedModel, price } = collectionItem;
+        
+        console.log(`🎴 Processing collection ${collectionId} for user ${userId}`);
+        
+        // Fetch collection details
+        const collection = await collectionModel.findById(collectionId).populate('Products');
+        if (!collection) {
+            console.error(`❌ Collection not found: ${collectionId}`);
+            throw new Error(`Collection not found: ${collectionId}`);
+        }
+
+        console.log(`✓ Found collection: ${collection.name} with ${collection.Products?.length || 0} products`);
+
+        // Get user's already owned products (handle guest users)
+        let ownedProductIds = [];
+        const mongoose = require('mongoose');
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+            try {
+                const user = await userModel.findById(userId).select('unlockedProducts');
+                ownedProductIds = user?.unlockedProducts?.map(id => id.toString()) || [];
+                console.log(`✓ User owns ${ownedProductIds.length} products`);
+            } catch (err) {
+                console.warn(`⚠️ Could not fetch user products: ${err.message}`);
+            }
+        } else {
+            console.log(`⚠️ Guest user or invalid userId, treating as no owned products`);
+        }
+
+        // Filter gaming products from collection
+        const gamingProducts = collection.Products.filter(product => 
+            product.type === 'gaming' && product.level
+        );
+
+        if (gamingProducts.length === 0) {
+            throw new Error(`No gaming products found in collection: ${collection.name}`);
+        }
+
+        let selectedProducts = [];
+
+        if (quantity >= 5) {
+            // Complete collection: User gets ALL cards
+            console.log(`✓ Complete collection order: All ${gamingProducts.length} cards`);
+            selectedProducts = gamingProducts.slice(0, 5); // Take first 5 cards
+        } else {
+            // Incomplete: Select random unique cards not owned by user
+            const availableProducts = gamingProducts.filter(product => 
+                !ownedProductIds.includes(product._id.toString())
+            );
+
+            if (availableProducts.length === 0) {
+                // If user owns all, allow any random cards
+                console.warn(`⚠️ User owns all products, selecting from full collection`);
+                selectedProducts = gamingProducts
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, quantity);
+            } else {
+                // Select random unique cards from available
+                selectedProducts = availableProducts
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, Math.min(quantity, availableProducts.length));
+            }
+
+            console.log(`✓ Random selection: ${selectedProducts.length} cards from ${availableProducts.length} available`);
+        }
+
+        // Convert to order items
+        const orderItems = selectedProducts.map(product => ({
+            itemType: 'product', // Convert collection to individual products
+            productId: product._id,
+            productName: product.name,
+            collectionId: collection._id,
+            collectionName: collection.name,
+            phoneModel: selectedModel,
+            selectedBrand,
+            selectedModel,
+            quantity: 1,
+            price: price / quantity, // Divide price evenly
+            image: product.image
+        }));
+
+        return orderItems;
+    } catch (error) {
+        console.error('❌ Error processing collection:', error.message);
+        throw error;
+    }
 };
 
 // Placing orders using Stripe Method
@@ -252,8 +349,49 @@ const createRazorpayOrder = async (req, res) => {
         console.log('✓ Valid UserId:', validUserId);
         console.log('✓ Items:', items.length, 'items');
 
+        // Process collection items - convert them to actual products
+        const processedItems = [];
+        for (const item of items) {
+            if (item.type === 'collection') {
+                try {
+                    console.log(`🎴 Processing collection: ${item.name || item.productId}`);
+                    const collectionProducts = await processCollectionItems(validUserId, item);
+                    processedItems.push(...collectionProducts);
+                    console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
+                } catch (collectionError) {
+                    console.error(`❌ Failed to process collection:`, collectionError.message);
+                    // Fallback: Add collection as-is if processing fails
+                    processedItems.push({
+                        itemType: 'collection',
+                        productId: item.productId,
+                        productName: item.name || 'Collection',
+                        phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                        selectedBrand: item.selectedBrand,
+                        selectedModel: item.selectedModel,
+                        quantity: item.quantity,
+                        price: item.price
+                    });
+                }
+            } else {
+                // Regular product or custom-design
+                processedItems.push({
+                    itemType: item.type || 'product',
+                    productId: item.productId,
+                    productName: item.name,
+                    phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                    selectedBrand: item.selectedBrand,
+                    selectedModel: item.selectedModel,
+                    quantity: item.quantity,
+                    price: item.price,
+                    customDesign: item.customDesign || undefined
+                });
+            }
+        }
+
+        console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
+
         // Calculate totals
-        const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const shippingCost = deliveryCharge;
         const discount = 0; // Coupon disabled for now
         const totalAmount = subtotal + shippingCost - discount;
@@ -267,7 +405,7 @@ const createRazorpayOrder = async (req, res) => {
         const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
         // Format items for the schema - convert string IDs to ObjectIds if possible
-        const formattedItems = items.map(item => {
+        const formattedItems = processedItems.map(item => {
             let productObjectId;
             
             // Try to convert productId to ObjectId, if it fails, create a new ObjectId
@@ -282,11 +420,14 @@ const createRazorpayOrder = async (req, res) => {
             }
             
             return {
+                itemType: item.itemType || 'product',
                 productId: productObjectId,
-                productName: item.name,
-                phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                productName: item.productName || item.name || 'Product',
+                collectionId: item.collectionId || undefined,
+                phoneModel: item.phoneModel || item.selectedModel || item.selectedBrand || 'Universal',
                 quantity: item.quantity,
-                price: item.price
+                price: item.price,
+                customDesign: item.customDesign || undefined
             };
         });
 
@@ -453,8 +594,49 @@ const verifyRazorpay = async (req, res) => {
                 validUserId = userId;
             }
 
+            // Process collection items - convert them to actual products
+            const processedItems = [];
+            for (const item of items) {
+                if (item.type === 'collection') {
+                    try {
+                        console.log(`🎴 Processing collection: ${item.name || item.productId}`);
+                        const collectionProducts = await processCollectionItems(validUserId, item);
+                        processedItems.push(...collectionProducts);
+                        console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
+                    } catch (collectionError) {
+                        console.error(`❌ Failed to process collection:`, collectionError.message);
+                        // Fallback: Add collection as-is if processing fails
+                        processedItems.push({
+                            itemType: 'collection',
+                            productId: item.productId,
+                            productName: item.name || 'Collection',
+                            phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                            selectedBrand: item.selectedBrand,
+                            selectedModel: item.selectedModel,
+                            quantity: item.quantity,
+                            price: item.price
+                        });
+                    }
+                } else {
+                    // Regular product or custom-design
+                    processedItems.push({
+                        itemType: item.type || 'product',
+                        productId: item.productId,
+                        productName: item.name,
+                        phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                        selectedBrand: item.selectedBrand,
+                        selectedModel: item.selectedModel,
+                        quantity: item.quantity,
+                        price: item.price,
+                        customDesign: item.customDesign || undefined
+                    });
+                }
+            }
+
+            console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
+
             // Calculate totals
-            const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const shippingCost = deliveryCharge;
             let discount = 0;
             let couponDiscountPercentage = 0;
@@ -482,7 +664,7 @@ const verifyRazorpay = async (req, res) => {
             const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
             // Format items for the schema
-            const formattedItems = items.map(item => {
+            const formattedItems = processedItems.map(item => {
                 let productObjectId;
                 
                 if (mongoose.Types.ObjectId.isValid(item.productId)) {
@@ -493,11 +675,14 @@ const verifyRazorpay = async (req, res) => {
                 }
                 
                 return {
+                    itemType: item.itemType || 'product',
                     productId: productObjectId,
-                    productName: item.name,
-                    phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                    productName: item.productName || item.name || 'Product',
+                    collectionId: item.collectionId || undefined,
+                    phoneModel: item.phoneModel || item.selectedModel || item.selectedBrand || 'Universal',
                     quantity: item.quantity,
-                    price: item.price
+                    price: item.price,
+                    customDesign: item.customDesign || undefined
                 };
             });
 
@@ -538,9 +723,44 @@ const verifyRazorpay = async (req, res) => {
             await newOrder.save();
             console.log('✅ Order saved successfully with ID:', newOrder._id);
 
-            // Clear user's cart
+            // Add ordered products to user's unlocked collection
             try {
-                await userModel.findByIdAndUpdate(validUserId, { cartData: {} });
+                const productIdsToUnlock = formattedItems
+                    .filter(item => item.itemType === 'product' && item.productId)
+                    .map(item => item.productId);
+
+                const collectionIdsToUnlock = formattedItems
+                    .filter(item => item.collectionId)
+                    .map(item => item.collectionId)
+                    .filter((value, index, self) => self.indexOf(value) === index); // Unique
+
+                if (productIdsToUnlock.length > 0) {
+                    await userModel.findByIdAndUpdate(validUserId, {
+                        $addToSet: { 
+                            unlockedProducts: { $each: productIdsToUnlock }
+                        }
+                    });
+                    console.log(`🔓 Unlocked ${productIdsToUnlock.length} products for user`);
+                }
+
+                if (collectionIdsToUnlock.length > 0) {
+                    await userModel.findByIdAndUpdate(validUserId, {
+                        $addToSet: { 
+                            unlockedCollections: { $each: collectionIdsToUnlock }
+                        }
+                    });
+                    console.log(`🔓 Unlocked ${collectionIdsToUnlock.length} collections for user`);
+                }
+            } catch (err) {
+                console.error('⚠️ Could not unlock products:', err.message);
+            }
+
+            // Clear user's cart from Cart collection
+            try {
+                await cartModel.findOneAndUpdate(
+                    { userId: validUserId },
+                    { $set: { items: [] } }
+                );
                 console.log('🛒 Cart cleared for user');
             } catch (err) {
                 console.log('⚠️ Could not clear cart:', err.message);
@@ -856,9 +1076,12 @@ const placeOrderCOD = async (req, res) => {
         await newOrder.save();
         console.log('✓ COD Order saved with ID:', newOrder._id);
 
-        // Clear user's cart
+        // Clear user's cart from Cart collection
         try {
-            await userModel.findByIdAndUpdate(validUserId, { cartData: {} });
+            await cartModel.findOneAndUpdate(
+                { userId: validUserId },
+                { $set: { items: [] } }
+            );
             console.log('🛒 Cart cleared for user');
         } catch (err) {
             console.log('⚠️ Could not clear cart:', err.message);
