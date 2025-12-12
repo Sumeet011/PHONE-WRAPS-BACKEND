@@ -5,6 +5,12 @@ const CollectionSchema = new Schema({
         type: String,
         required: true,
     },
+    type: {
+        type: String,
+        enum: ['gaming', 'normal'],
+        default: 'gaming',
+        required: true,
+    },
     heroImage: {
         type: String,
         default: null,
@@ -15,7 +21,6 @@ const CollectionSchema = new Schema({
     }],
     description: {
         type: String,
-        required: true,
     },
     Features:[{
         type: String,

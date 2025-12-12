@@ -29,26 +29,30 @@ const CartItemSchema = new Schema({
     required: true,
     min: 0
   },
-  // Custom design specific fields
+  // Custom design specific fields (only for type: 'custom-design')
   customDesign: {
-    designImageUrl: {
-      type: String, // Cloudinary URL of the final design
-      default: ''
+    type: {
+      designImageUrl: {
+        type: String, // Cloudinary URL of the final design
+        default: ''
+      },
+      originalImageUrl: {
+        type: String, // User uploaded image URL
+        default: ''
+      },
+      phoneModel: {
+        type: String,
+        default: ''
+      },
+      transform: {
+        x: { type: Number, default: 0 },
+        y: { type: Number, default: 0 },
+        scale: { type: Number, default: 1 },
+        rotation: { type: Number, default: 0 }
+      }
     },
-    originalImageUrl: {
-      type: String, // User uploaded image URL
-      default: ''
-    },
-    phoneModel: {
-      type: String,
-      default: ''
-    },
-    transform: {
-      x: { type: Number, default: 0 },
-      y: { type: Number, default: 0 },
-      scale: { type: Number, default: 1 },
-      rotation: { type: Number, default: 0 }
-    }
+    required: false,
+    default: undefined // Don't include this field unless explicitly set
   },
   addedAt: {
     type: Date,

@@ -2,7 +2,8 @@ const express = require('express')
 const {
     placeOrderRazorpay, 
     // createRazorpayOrder,  // DEPRECATED - Orders now created after payment verification
-    allOrders, 
+    allOrders,
+    getOrderById,
     userOrders, 
     updateStatus,
     updateTracking,
@@ -19,15 +20,18 @@ orderRouter.post('/list', allOrders)
 orderRouter.post('/status', updateStatus)
 orderRouter.post('/tracking', updateTracking)
 
+// Leaderboard (specific route before parameterized route)
+orderRouter.get('/leaderboard', getLeaderboard)
+
+// Get single order by ID (must be after specific GET routes)
+orderRouter.get('/:orderId', getOrderById)
+
 // Payment Features
 orderRouter.post('/razorpay', placeOrderRazorpay)
 // orderRouter.post('/createRazorpayOrder', createRazorpayOrder) // REMOVED - Don't create orders before payment
 
 // User Feature 
 orderRouter.post('/userorders', userOrders)
-
-// Leaderboard
-orderRouter.get('/leaderboard', getLeaderboard)
 
 // verify payment
 orderRouter.post('/verifyRazorpay', verifyRazorpay)

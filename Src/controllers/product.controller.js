@@ -34,6 +34,11 @@ exports.create = asyncHandler(async (req, res) => {
     } = req.body;
 
     console.log('Received product data:', req.body);
+    console.log('Product type:', type);
+    console.log('Product type comparison - gaming:', type === 'gaming');
+    console.log('Product type comparison - Standard:', type === 'Standard');
+    console.log('Collection ID:', collectionId);
+    console.log('Group ID:', groupId);
     console.log('Received file:', req.file);
 
     // Check if image was uploaded
@@ -69,10 +74,14 @@ exports.create = asyncHandler(async (req, res) => {
 
     // Create the product
     const product = await createProduct(productData);
-    console.log('Product created:', product._id);
+    console.log('Product created with ID:', product._id);
+    console.log('About to check product type conditions...');
+    console.log('Type value:', type);
+    console.log('Type typeof:', typeof type);
 
     // If gaming product, add to collection and optionally to group
     if (type === 'gaming') {
+      console.log('Processing gaming product...');
       if (!collectionId) {
         return res.status(400).json({ success: false, message: "Collection is required for gaming products" });
       }
@@ -81,12 +90,33 @@ exports.create = asyncHandler(async (req, res) => {
       }
 
       // Add product to collection
+      console.log('Adding product to gaming collection:', collectionId);
       await addProductToCollection(collectionId, product._id);
-      console.log('Product added to collection:', collectionId);
+      console.log('Product successfully added to gaming collection');
 
       // Add collection to group (if not already added)
+      console.log('Adding collection to group:', groupId);
       await addCollectionToGroup(groupId, collectionId);
-      console.log('Collection added to group:', groupId);
+      console.log('Collection added to group successfully');
+    }
+    
+    // If Standard product, add to collection (no group required)
+    if (type === 'Standard') {
+      console.log('Processing Standard product...');
+      console.log('Standard product collectionId:', collectionId);
+      
+      if (!collectionId) {
+        console.log('ERROR: No collectionId provided for Standard product');
+        return res.status(400).json({ success: false, message: "Collection is required for standard products" });
+      }
+
+      // Add product to collection
+      console.log('Attempting to add product', product._id, 'to standard collection', collectionId);
+      const result = await addProductToCollection(collectionId, product._id);
+      console.log('addProductToCollection result:', result);
+      console.log('Product successfully added to standard collection:', collectionId);
+    } else {
+      console.log('WARNING: Product type did not match gaming or Standard. Type was:', type);
     }
 
     res.status(201).json({ 

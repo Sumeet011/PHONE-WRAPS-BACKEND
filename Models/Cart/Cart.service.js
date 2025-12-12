@@ -1,5 +1,6 @@
 const Cart = require('./Cart.model');
 const Product = require('../Products/Product.model');
+const Collection = require('../Collection/Collection.model');
 
 /**
  * Get user's cart with populated product details
@@ -45,19 +46,48 @@ const getCartByUserId = async (userId) => {
 /**
  * Add item to cart
  */
-const addToCart = async (userId, productId, quantity = 1, options = {}) => {
-  console.log('Adding to cart:', { userId, productId, quantity, options });
+const addToCart = async (userId, type, productId, quantity = 1, options = {}) => {
+  console.log('Adding to cart:', { userId, type, productId, quantity, options });
 
-  // Find product by custom ID field (not _id)
-  const product = await Product.findOne({ id: productId });
-  
-  if (!product) {
-    throw new Error('Product not found');
+  // Validate type
+  if (!['product', 'collection', 'custom-design'].includes(type)) {
+    throw new Error('Invalid type. Must be "product", "collection", or "custom-design"');
   }
 
-  // Check stock availability
-  if (product.stock !== undefined && product.stock < quantity) {
-    throw new Error('Insufficient stock');
+  let itemData = null;
+  let price = 0;
+
+  // Handle different item types
+  if (type === 'product') {
+    const product = await Product.findById(productId);
+    if (!product) {
+      throw new Error('Product not found');
+    }
+    
+    // Check stock availability
+    if (product.stock !== undefined && product.stock < quantity) {
+      throw new Error('Insufficient stock');
+    }
+    
+    price = product.price;
+    
+  } else if (type === 'collection') {
+    const collection = await Collection.findById(productId);
+    if (!collection) {
+      throw new Error('Collection not found');
+    }
+    
+    // Collections typically have a fixed price per card
+    price = options.price || 299; // Default collection price
+    
+  } else if (type === 'custom-design') {
+    // Custom designs don't need DB validation
+    // Price and customDesign data should come from options
+    price = options.price || 499;
+    
+    if (!options.customDesign?.designImageUrl) {
+      throw new Error('Custom design requires designImageUrl');
+    }
   }
 
   // Find or create cart
@@ -70,40 +100,48 @@ const addToCart = async (userId, productId, quantity = 1, options = {}) => {
     });
   }
 
-  // Check if product already in cart
+  // Check if same item with same configuration already exists
   const existingItemIndex = cart.items.findIndex(
-    item => item.productId === productId
+    item => 
+      item.productId === productId && 
+      item.type === type &&
+      item.selectedBrand === (options.selectedBrand || '') && 
+      item.selectedModel === (options.selectedModel || '')
   );
 
   if (existingItemIndex > -1) {
     // Update quantity if item exists
     cart.items[existingItemIndex].quantity += quantity;
     
-    // Update options if provided
-    if (options.selectedBrand) {
-      cart.items[existingItemIndex].selectedBrand = options.selectedBrand;
-    }
-    if (options.selectedModel) {
-      cart.items[existingItemIndex].selectedModel = options.selectedModel;
-    }
   } else {
     // Add new item to cart
-    cart.items.push({
-      productId: productId, // Store custom ID as string
+    const newItem = {
+      type,
+      productId: productId,
       quantity,
       selectedBrand: options.selectedBrand || '',
       selectedModel: options.selectedModel || '',
-      price: product.price
-    });
+      price
+    };
+    
+    // Only add customDesign for custom-design type
+    if (type === 'custom-design' && options.customDesign) {
+      newItem.customDesign = {
+        designImageUrl: options.customDesign.designImageUrl || '',
+        originalImageUrl: options.customDesign.originalImageUrl || '',
+        phoneModel: options.customDesign.phoneModel || '',
+        transform: options.customDesign.transform || { x: 0, y: 0, scale: 1, rotation: 0 }
+      };
+    }
+    
+    cart.items.push(newItem);
   }
 
   await cart.save();
 
   // Return populated cart
   return await getCartByUserId(userId);
-};
-
-/**
+};/**
  * Update item quantity in cart
  */
 const updateCartItem = async (userId, productId, quantity) => {

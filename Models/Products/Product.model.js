@@ -15,12 +15,12 @@ const ProductSchema = new Schema({
     },
     level:{
         type: String,
-        required: true,
+        required: false,
         maxlength: 2
     },
     description: {
         type: String,
-        required: true,
+        required: false,
         maxlength: 2000
     },
     // Product Categories

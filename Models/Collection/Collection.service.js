@@ -66,15 +66,29 @@ const getCollectionsByFilter = async (filter = {}, options = {}) => {
 
 // Add product to collection
 const addProductToCollection = async (collectionId, productId) => {
-  if (!collectionId || !productId) throw new Error("Collection id and product id are required");
+  console.log('[addProductToCollection] Called with collectionId:', collectionId, 'productId:', productId);
+  
+  if (!collectionId || !productId) {
+    console.log('[addProductToCollection] ERROR: Missing required parameters');
+    throw new Error("Collection id and product id are required");
+  }
 
   const collection = await Collection.findById(collectionId);
-  if (!collection) throw new Error("Collection not found");
+  console.log('[addProductToCollection] Collection found:', collection ? collection.name : 'NOT FOUND');
+  
+  if (!collection) {
+    console.log('[addProductToCollection] ERROR: Collection not found');
+    throw new Error("Collection not found");
+  }
 
   // Avoid duplicates
   if (!collection.Products.includes(productId)) {
+    console.log('[addProductToCollection] Adding product to collection...');
     collection.Products.push(productId);
     await collection.save();
+    console.log('[addProductToCollection] Product added successfully. Total products:', collection.Products.length);
+  } else {
+    console.log('[addProductToCollection] Product already exists in collection');
   }
 
   return collection;

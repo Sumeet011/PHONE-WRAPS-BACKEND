@@ -856,6 +856,33 @@ const userOrders = async (req, res) => {
     }
 }
 
+const getOrderById = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+
+        if (!orderId) {
+            return res.status(400).json({ success: false, message: "Order ID is required" });
+        }
+
+        const order = await orderModel.findById(orderId)
+            .populate('userId', 'name email')
+            .populate('items.productId', 'name image price')
+            .populate('items.collectionId', 'name type');
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        res.json({ success: true, order });
+    } catch (error) {
+        console.error('Get order error:', error);
+        if (error.name === 'CastError') {
+            return res.status(400).json({ success: false, message: "Invalid order ID format" });
+        }
+        res.status(500).json({ success: false, message: 'Failed to fetch order' });
+    }
+};
+
 const updateStatus = async (req,res) => {
     try {
         const { orderId, status } = req.body;
@@ -1209,7 +1236,8 @@ module.exports = {
     placeOrderRazorpay, 
     // createRazorpayOrder, // DEPRECATED - Don't export (orders created after payment now)
     placeOrderCOD,
-    allOrders, 
+    allOrders,
+    getOrderById,
     userOrders, 
     updateStatus,
     updateTracking,

@@ -47,7 +47,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 // CORS - Allow frontend to access backend
 app.use(cors({
-  origin: ['http://localhost:4000', 'http://localhost:3001', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app'],
+  origin: ['http://localhost:4000','http://localhost:5174', 'http://localhost:3001', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'User-Id', 'token']
