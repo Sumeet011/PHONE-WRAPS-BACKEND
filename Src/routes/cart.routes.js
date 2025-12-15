@@ -9,6 +9,9 @@ const {
   clearCart,
   getItemCount,
   addToGuestCart,
+  applyCoupon,
+  removeCoupon,
+  getAppliedCoupons,
   errorHandler
 } = require('../controllers/cart.controller');
 
@@ -86,6 +89,32 @@ router.delete('/remove/:productId', extractUserId, removeItem);
  * @headers X-User-Id: userId
  */
 router.delete('/clear', extractUserId, clearCart);
+
+/**
+ * @route   POST /api/cart/coupon/apply
+ * @desc    Apply coupon to cart
+ * @access  Public
+ * @headers X-User-Id: userId
+ * @body    { code, discountPercentage, discountAmount }
+ */
+router.post('/coupon/apply', extractUserId, applyCoupon);
+
+/**
+ * @route   DELETE /api/cart/coupon/remove/:code
+ * @desc    Remove coupon from cart
+ * @access  Public
+ * @headers X-User-Id: userId
+ * @params  code - Coupon code
+ */
+router.delete('/coupon/remove/:code', extractUserId, removeCoupon);
+
+/**
+ * @route   GET /api/cart/coupons
+ * @desc    Get all applied coupons
+ * @access  Public
+ * @headers X-User-Id: userId
+ */
+router.get('/coupons', extractUserId, getAppliedCoupons);
 
 // Error handler
 router.use(errorHandler);

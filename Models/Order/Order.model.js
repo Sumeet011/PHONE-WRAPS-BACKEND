@@ -107,7 +107,23 @@ const OrderSummarySchema = new Schema({
         min: 0
     },
     
-    // Discount & Coupon
+    // Discount & Coupon (supports multiple coupons)
+    appliedCoupons: [{
+        code: {
+            type: String,
+            required: true,
+            uppercase: true
+        },
+        discountPercentage: {
+            type: Number,
+            required: true
+        },
+        discountAmount: {
+            type: Number,
+            required: true
+        }
+    }],
+    // Legacy fields for backward compatibility
     couponCode: {
         type: String,
         trim: true,

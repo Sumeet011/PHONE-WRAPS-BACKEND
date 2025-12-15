@@ -66,15 +66,27 @@ const listCoupons = async (req, res) => {
     }
 };
 
-// Validate and apply coupon (User)
+// Validate and apply coupon (User) - supports multiple coupons
 const validateCoupon = async (req, res) => {
     try {
-        const { code, orderAmount } = req.body;
+        const { code, orderAmount, appliedCoupons = [] } = req.body;
 
         if (!code || !orderAmount) {
             return res.status(400).json({ 
                 success: false, 
                 message: 'Coupon code and order amount are required' 
+            });
+        }
+
+        // Check if coupon is already applied
+        const alreadyApplied = appliedCoupons.some(
+            c => c.code.toUpperCase() === code.toUpperCase()
+        );
+        
+        if (alreadyApplied) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'This coupon is already applied' 
             });
         }
 

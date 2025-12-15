@@ -341,6 +341,117 @@ exports.addToGuestCart = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc Apply coupon to cart
+ * @route POST /api/cart/coupon/apply
+ * @access Public
+ */
+exports.applyCoupon = asyncHandler(async (req, res) => {
+  const userId = req.user._id || req.user.id;
+  const { code, discountPercentage, discountAmount } = req.body;
+
+  if (!code || !discountPercentage || !discountAmount) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Coupon code, discount percentage, and discount amount are required' 
+    });
+  }
+
+  const cart = await Cart.findOne({ userId });
+  if (!cart) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Cart not found' 
+    });
+  }
+
+  // Check if coupon already applied
+  const alreadyApplied = cart.appliedCoupons.some(
+    c => c.code.toUpperCase() === code.toUpperCase()
+  );
+
+  if (alreadyApplied) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'This coupon is already applied' 
+    });
+  }
+
+  // Add coupon to cart
+  cart.appliedCoupons.push({
+    code: code.toUpperCase(),
+    discountPercentage,
+    discountAmount
+  });
+
+  await cart.save();
+
+  res.status(200).json({ 
+    success: true, 
+    message: 'Coupon applied successfully',
+    data: {
+      appliedCoupons: cart.appliedCoupons
+    }
+  });
+});
+
+/**
+ * @desc Remove coupon from cart
+ * @route DELETE /api/cart/coupon/remove/:code
+ * @access Public
+ */
+exports.removeCoupon = asyncHandler(async (req, res) => {
+  const userId = req.user._id || req.user.id;
+  const { code } = req.params;
+
+  const cart = await Cart.findOne({ userId });
+  if (!cart) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Cart not found' 
+    });
+  }
+
+  // Remove coupon from cart
+  cart.appliedCoupons = cart.appliedCoupons.filter(
+    c => c.code.toUpperCase() !== code.toUpperCase()
+  );
+
+  await cart.save();
+
+  res.status(200).json({ 
+    success: true, 
+    message: 'Coupon removed successfully',
+    data: {
+      appliedCoupons: cart.appliedCoupons
+    }
+  });
+});
+
+/**
+ * @desc Get all applied coupons
+ * @route GET /api/cart/coupons
+ * @access Public
+ */
+exports.getAppliedCoupons = asyncHandler(async (req, res) => {
+  const userId = req.user._id || req.user.id;
+
+  const cart = await Cart.findOne({ userId });
+  if (!cart) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Cart not found' 
+    });
+  }
+
+  res.status(200).json({ 
+    success: true, 
+    data: {
+      appliedCoupons: cart.appliedCoupons || []
+    }
+  });
+});
+
+/**
  * Global Error Handler
  */
 exports.errorHandler = (err, req, res, next) => {

@@ -65,7 +65,26 @@ const CartSchema = new Schema({
     type: String, // ✅ Changed from ObjectId to String
     required: true
   },
-  items: [CartItemSchema]
+  items: [CartItemSchema],
+  appliedCoupons: [{
+    code: {
+      type: String,
+      required: true,
+      uppercase: true
+    },
+    discountPercentage: {
+      type: Number,
+      required: true
+    },
+    discountAmount: {
+      type: Number,
+      required: true
+    },
+    appliedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true
 });

@@ -393,8 +393,46 @@ const createRazorpayOrder = async (req, res) => {
         // Calculate totals
         const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const shippingCost = deliveryCharge;
-        const discount = 0; // Coupon disabled for now
-        const totalAmount = subtotal + shippingCost - discount;
+        
+        // Handle multiple coupons
+        let appliedCoupons = [];
+        let totalDiscount = 0;
+        
+        if (Array.isArray(coupon) && coupon.length > 0) {
+            // Multiple coupons from new system
+            appliedCoupons = coupon.map(c => ({
+                code: c.code,
+                discountPercentage: c.discountPercentage,
+                discountAmount: c.discountAmount
+            }));
+            totalDiscount = appliedCoupons.reduce((sum, c) => sum + c.discountAmount, 0);
+            
+            // Increment usage count for all coupons
+            for (const c of appliedCoupons) {
+                await couponModel.findOneAndUpdate(
+                    { code: c.code }, 
+                    { $inc: { usedCount: 1 } }
+                );
+            }
+        } else if (typeof coupon === 'string' && coupon) {
+            // Legacy single coupon support
+            const couponData = await couponModel.findOne({ code: coupon });
+            if (couponData) {
+                const discountAmount = Math.round((subtotal * couponData.discountPercentage) / 100);
+                appliedCoupons = [{
+                    code: couponData.code,
+                    discountPercentage: couponData.discountPercentage,
+                    discountAmount: discountAmount
+                }];
+                totalDiscount = discountAmount;
+                await couponModel.findOneAndUpdate(
+                    { code: coupon }, 
+                    { $inc: { usedCount: 1 } }
+                );
+            }
+        }
+        
+        const totalAmount = subtotal + shippingCost - totalDiscount;
 
         console.log('✓ Subtotal:', subtotal);
         console.log('✓ Shipping:', shippingCost);
@@ -450,7 +488,7 @@ const createRazorpayOrder = async (req, res) => {
             userId: validUserId,
             items: formattedItems,
             subtotal: subtotal,
-            discount: discount,
+            discount: totalDiscount,
             shippingCost: shippingCost,
             totalAmount: totalAmount,
             status: 'Pending',
@@ -458,8 +496,10 @@ const createRazorpayOrder = async (req, res) => {
             paymentStatus: 'Pending',
             isPaid: false,
             shippingAddress: shippingAddress,
-            couponCode: coupon || null,
-            couponDiscount: discount
+            appliedCoupons: appliedCoupons,
+            // Legacy fields for backward compatibility
+            couponCode: appliedCoupons.length > 0 ? appliedCoupons[0].code : null,
+            couponDiscount: totalDiscount
         };
 
         console.log('📋 Order data prepared');
