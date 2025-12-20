@@ -29,14 +29,19 @@ const generateToken = (payload) => {
  */
 const verifyToken = (req, res, next) => {
   try {
-    // Get token from Authorization header
+    // Get token from Authorization header or legacy 'token' header
+    let token;
     const authHeader = req.headers.authorization;
+    const legacyToken = req.headers.token;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (legacyToken) {
+      // Support legacy 'token' header for backward compatibility
+      token = legacyToken;
+    } else {
       throw new AppError('No token provided', 401);
     }
-
-    const token = authHeader.split(' ')[1];
 
     // Verify token (no expiration check since tokens don't expire)
     const decoded = jwt.verify(token, JWT_SECRET);

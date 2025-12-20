@@ -99,9 +99,8 @@ exports.create = asyncHandler(async (req, res) => {
       await addCollectionToGroup(groupId, collectionId);
       console.log('Collection added to group successfully');
     }
-    
     // If Standard product, add to collection (no group required)
-    if (type === 'Standard') {
+    else if (type === 'Standard') {
       console.log('Processing Standard product...');
       console.log('Standard product collectionId:', collectionId);
       

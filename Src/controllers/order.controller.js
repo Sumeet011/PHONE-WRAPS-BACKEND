@@ -591,7 +591,12 @@ const verifyRazorpay = async (req, res) => {
             console.log('✅ Payment verified successfully! Creating order in database...');
             
             // Now create the order in database AFTER successful payment
-            const { items, address, coupon, userId } = orderData;
+            const { items, address, coupon: rawCoupon, userId } = orderData;
+
+            // Normalize coupon value - handle empty arrays, empty strings, null, undefined
+            const coupon = (Array.isArray(rawCoupon) && rawCoupon.length === 0) || !rawCoupon || rawCoupon === '' 
+                ? null 
+                : (Array.isArray(rawCoupon) ? rawCoupon[0] : rawCoupon);
 
             const mongoose = require('mongoose');
             let validUserId;

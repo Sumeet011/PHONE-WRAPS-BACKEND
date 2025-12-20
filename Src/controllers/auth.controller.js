@@ -350,7 +350,7 @@ exports.adminLogin = async (req, res) => {
     const { email, password } = req.body; 
     if (email === 'PHONEWRAPS@phonwrap.com' && password === 'PHONWRAPSADMIN123') {
       const token = jwt.sign(
-        { userId: 'admin-id', email: email },
+        { userId: 'admin-id', email: email, role: 'admin' },
         JWT_SECRET
       );
       return res.status(200).json({

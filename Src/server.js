@@ -31,6 +31,8 @@ const couponRoutes = require('./routes/coupon.routes');
 const customDesignRoutes = require('./routes/customDesign.routes');
 const blogRoutes = require('./routes/blog.routes');
 const designAssetRoutes = require('./routes/designAsset.routes');
+const siteSettingsRoutes = require('./routes/siteSettings.routes');
+const collectionTooltipRoutes = require('./routes/collectionTooltip.routes');
 
 // Create Express app
 const app = express();
@@ -47,7 +49,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 // CORS - Allow frontend to access backend
 app.use(cors({
-  origin: ['http://localhost:4000','http://localhost:5174', 'http://localhost:3001', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app','https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev','https://phone-wraps.vercel.app'],
+  origin: ['http://localhost:4000','http://localhost:5174', 'http://localhost:3009', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app','https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev','https://phone-wraps.vercel.app','https://phone-cover.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'User-Id', 'token']
@@ -64,6 +66,8 @@ app.use('/api/coupon', couponRoutes);
 app.use('/api/custom-design', customDesignRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/design-assets', designAssetRoutes);
+app.use('/api/site-settings', siteSettingsRoutes);
+app.use('/api/collection-tooltips', collectionTooltipRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {

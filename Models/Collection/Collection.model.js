@@ -8,7 +8,7 @@ const CollectionSchema = new Schema({
     type: {
         type: String,
         enum: ['gaming', 'normal'],
-        default: 'gaming',
+        default: 'normal',
         required: true,
     },
     heroImage: {

@@ -140,6 +140,11 @@ const validateCoupon = async (req, res) => {
 // Use coupon (called after successful payment)
 const useCoupon = async (code) => {
     try {
+        // Validate code is a string
+        if (!code || typeof code !== 'string') {
+            throw new Error('Invalid coupon code format');
+        }
+        
         const coupon = await Coupon.findOne({ code: code.toUpperCase() });
         
         if (!coupon) {

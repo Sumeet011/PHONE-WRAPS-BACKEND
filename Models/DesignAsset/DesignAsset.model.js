@@ -7,7 +7,7 @@ const DesignAssetSchema = new Schema({
   },
   category: {
     type: String,
-    enum: ['HERO', 'CIRCULAR'],
+    enum: ['HERO', 'CIRCULAR', 'CARD'],
     default: 'HERO'
   },
   isActive: {
