@@ -266,6 +266,14 @@ const OrderSummarySchema = new Schema({
         type: String,
         trim: true
     },
+    awbCode: {
+        type: String,
+        trim: true
+    },
+    shipmentId: {
+        type: String,
+        trim: true
+    },
     trackingLink: {
         type: String,
         trim: true

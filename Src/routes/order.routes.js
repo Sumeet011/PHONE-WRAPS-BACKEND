@@ -10,7 +10,10 @@ const {
     verifyRazorpay, 
     deleteOrder,
     placeOrderCOD,
-    getLeaderboard
+    getLeaderboard,
+    createOrderShipment,
+    cancelOrderShipment,
+    cancelOrder
 } = require('../controllers/order.controller.js')
 
 const orderRouter = express.Router()
@@ -22,6 +25,11 @@ orderRouter.post('/tracking', updateTracking)
 
 // Leaderboard (specific route before parameterized route)
 orderRouter.get('/leaderboard', getLeaderboard)
+
+// Manual Shipment Management Routes
+orderRouter.post('/:orderId/create-shipment', createOrderShipment)
+orderRouter.post('/:orderId/cancel-shipment', cancelOrderShipment)
+orderRouter.post('/:orderId/cancel', cancelOrder)
 
 // Get single order by ID (must be after specific GET routes)
 orderRouter.get('/:orderId', getOrderById)

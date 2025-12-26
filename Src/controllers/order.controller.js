@@ -5,6 +5,7 @@ const couponModel = require("../../Models/Coupon/Coupon.model.js");
 const productModel = require("../../Models/Products/Product.model.js");
 const collectionModel = require("../../Models/Collection/Collection.model.js");
 const { useCoupon } = require("./coupon.controller.js");
+const { createShipment } = require("../utils/iThinkLogistics.js");
 const Razorpay = require('razorpay');
 const validator = require("validator");
 require('dotenv').config();
@@ -767,6 +768,7 @@ const verifyRazorpay = async (req, res) => {
 
             await newOrder.save();
             console.log('✅ Order saved successfully with ID:', newOrder._id);
+            console.log('📋 Order status: Confirmed (Shipment not created yet - waiting for manual confirmation)');
 
             // Add ordered products to user's unlocked collection
             try {
@@ -1276,6 +1278,191 @@ const getLeaderboard = async (req, res) => {
     }
 };
 
+/**
+ * Manually create shipment in iThink Logistics for an order
+ */
+const createOrderShipment = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+
+        const order = await orderModel.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (order.awbCode) {
+            return res.status(400).json({ success: false, message: 'Shipment already created for this order' });
+        }
+
+        if (order.status === 'Cancelled') {
+            return res.status(400).json({ success: false, message: 'Cannot create shipment for cancelled order' });
+        }
+
+        console.log('📦 Creating shipment in iThink Logistics for order:', orderId);
+
+        // Prepare shipment data
+        const shipmentResult = await createShipment({
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            items: order.items,
+            shippingAddress: order.shippingAddress,
+            totalAmount: order.totalAmount,
+            subtotal: order.subtotal,
+            shippingCost: order.shippingCost,
+            discount: order.discount,
+            paymentMethod: order.paymentMethod
+        });
+
+        if (shipmentResult.success) {
+            // Update order with shipment details
+            order.awbCode = shipmentResult.awbCode;
+            order.shipmentId = shipmentResult.shipmentId;
+            order.trackingNumber = shipmentResult.awbCode;
+            order.courierPartner = shipmentResult.courierName;
+            order.status = 'Processing';
+            await order.save();
+
+            console.log('✅ Shipment created! AWB:', shipmentResult.awbCode);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Shipment created successfully',
+                data: {
+                    orderId: order._id,
+                    awbCode: shipmentResult.awbCode,
+                    shipmentId: shipmentResult.shipmentId,
+                    courierName: shipmentResult.courierName,
+                    trackingNumber: shipmentResult.awbCode
+                }
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to create shipment',
+                error: shipmentResult.message
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error creating shipment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create shipment',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Cancel shipment in iThink Logistics
+ */
+const cancelOrderShipment = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+
+        const order = await orderModel.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (!order.awbCode) {
+            return res.status(400).json({ success: false, message: 'No shipment to cancel' });
+        }
+
+        console.log('🚫 Cancelling shipment for order:', orderId, 'AWB:', order.awbCode);
+
+        // Cancel shipment in iThink Logistics
+        const { cancelShipment: cancelShipmentAPI } = require('../utils/iThinkLogistics');
+        const cancelResult = await cancelShipmentAPI(order.awbCode);
+
+        if (cancelResult.success) {
+            // Clear shipment details but keep order
+            order.awbCode = null;
+            order.shipmentId = null;
+            order.trackingNumber = null;
+            order.courierPartner = null;
+            order.status = 'Confirmed'; // Back to confirmed
+            await order.save();
+
+            console.log('✅ Shipment cancelled successfully');
+
+            return res.status(200).json({
+                success: true,
+                message: 'Shipment cancelled successfully. Order is back to Confirmed status.',
+                data: order
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to cancel shipment',
+                error: cancelResult.message
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error cancelling shipment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to cancel shipment',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Cancel entire order (with optional shipment cancellation)
+ */
+const cancelOrder = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const { reason } = req.body;
+
+        const order = await orderModel.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (order.status === 'Delivered') {
+            return res.status(400).json({ success: false, message: 'Cannot cancel delivered order' });
+        }
+
+        console.log('🚫 Cancelling order:', orderId);
+
+        // If shipment exists, cancel it first
+        if (order.awbCode) {
+            try {
+                const { cancelShipment: cancelShipmentAPI } = require('../utils/iThinkLogistics');
+                await cancelShipmentAPI(order.awbCode);
+                console.log('✅ Shipment cancelled in iThink Logistics');
+            } catch (shipmentError) {
+                console.warn('⚠️ Could not cancel shipment:', shipmentError.message);
+            }
+        }
+
+        order.status = 'Cancelled';
+        order.cancellationReason = reason || 'Cancelled by admin';
+        order.cancelledAt = new Date();
+        order.cancelledBy = 'Admin';
+        await order.save();
+
+        console.log('✅ Order cancelled successfully');
+
+        return res.status(200).json({
+            success: true,
+            message: 'Order cancelled successfully',
+            data: order
+        });
+    } catch (error) {
+        console.error('❌ Error cancelling order:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to cancel order',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     verifyRazorpay,
     placeOrderRazorpay, 
@@ -1287,5 +1474,8 @@ module.exports = {
     updateStatus,
     updateTracking,
     deleteOrder,
-    getLeaderboard
+    getLeaderboard,
+    createOrderShipment,
+    cancelOrderShipment,
+    cancelOrder
 };
