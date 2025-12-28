@@ -33,6 +33,7 @@ const blogRoutes = require('./routes/blog.routes');
 const designAssetRoutes = require('./routes/designAsset.routes');
 const siteSettingsRoutes = require('./routes/siteSettings.routes');
 const collectionTooltipRoutes = require('./routes/collectionTooltip.routes');
+const phoneBrandRoutes = require('./routes/phoneBrand.routes');
 
 // Create Express app
 const app = express();
@@ -68,6 +69,7 @@ app.use('/api/blogs', blogRoutes);
 app.use('/api/design-assets', designAssetRoutes);
 app.use('/api/site-settings', siteSettingsRoutes);
 app.use('/api/collection-tooltips', collectionTooltipRoutes);
+app.use('/api/phone-brands', phoneBrandRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {

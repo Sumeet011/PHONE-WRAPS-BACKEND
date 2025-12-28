@@ -288,6 +288,7 @@ const createRazorpayOrder = async (req, res) => {
         console.log('📦 Creating Razorpay Order - Request body:', req.body);
         
         const { items, address, coupon, userId } = req.body;
+        console.log('🎟️ Coupon data received:', coupon, 'Type:', typeof coupon, 'IsArray:', Array.isArray(coupon));
 
         // Defensive: ensure items is a non-empty array
         if (!items || !Array.isArray(items) || items.length === 0) {
@@ -378,7 +379,7 @@ const createRazorpayOrder = async (req, res) => {
                 processedItems.push({
                     itemType: item.type || 'product',
                     productId: item.productId,
-                    productName: item.name,
+                    productName: item.productDetails?.name || item.name || (item.type === 'custom-design' ? 'Custom Design' : 'Product'),
                     phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
                     selectedBrand: item.selectedBrand,
                     selectedModel: item.selectedModel,
@@ -504,6 +505,13 @@ const createRazorpayOrder = async (req, res) => {
         };
 
         console.log('📋 Order data prepared');
+        console.log('🎟️ Order appliedCoupons:', orderData.appliedCoupons);
+        console.log('🎨 Order items with customDesign:', orderData.items.filter(i => i.customDesign).map(i => ({
+            productName: i.productName,
+            hasCustomDesign: !!i.customDesign,
+            designImageUrl: i.customDesign?.designImageUrl,
+            originalImageUrl: i.customDesign?.originalImageUrl
+        })));
 
         const newOrder = new orderModel(orderData);
         
@@ -574,6 +582,10 @@ const verifyRazorpay = async (req, res) => {
         console.log('🔍 Verifying Razorpay payment...');
         const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderData } = req.body;
         
+        console.log('📦 Full orderData received:', JSON.stringify(orderData, null, 2));
+        console.log('🎨 Items from orderData:', orderData?.items);
+        console.log('🖼️ Items with customDesign:', orderData?.items?.filter(i => i.customDesign));
+        
         if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
             return res.status(400).json({ success: false, message: "Missing payment verification data" });
         }
@@ -594,10 +606,12 @@ const verifyRazorpay = async (req, res) => {
             // Now create the order in database AFTER successful payment
             const { items, address, coupon: rawCoupon, userId } = orderData;
 
-            // Normalize coupon value - handle empty arrays, empty strings, null, undefined
-            const coupon = (Array.isArray(rawCoupon) && rawCoupon.length === 0) || !rawCoupon || rawCoupon === '' 
-                ? null 
-                : (Array.isArray(rawCoupon) ? rawCoupon[0] : rawCoupon);
+            console.log('🎟️ Coupon data received in verifyRazorpay:', rawCoupon, 'Type:', typeof rawCoupon, 'IsArray:', Array.isArray(rawCoupon));
+            
+            // Keep appliedCoupons as array
+            const appliedCoupons = (Array.isArray(rawCoupon) && rawCoupon.length > 0) 
+                ? rawCoupon 
+                : [];
 
             const mongoose = require('mongoose');
             let validUserId;
@@ -668,7 +682,7 @@ const verifyRazorpay = async (req, res) => {
                     processedItems.push({
                         itemType: item.type || 'product',
                         productId: item.productId,
-                        productName: item.name,
+                        productName: item.productDetails?.name || item.name || (item.type === 'custom-design' ? 'Custom Design' : 'Product'),
                         phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
                         selectedBrand: item.selectedBrand,
                         selectedModel: item.selectedModel,
@@ -684,26 +698,28 @@ const verifyRazorpay = async (req, res) => {
             // Calculate totals
             const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const shippingCost = deliveryCharge;
-            let discount = 0;
-            let couponDiscountPercentage = 0;
-
-            // If coupon was provided, use it and increment usage
-            if (coupon) {
-                try {
-                    console.log('🎟️ Using coupon:', coupon);
-                    const couponResult = await useCoupon(coupon);
-                    if (couponResult.success) {
-                        couponDiscountPercentage = couponResult.discountPercentage;
-                        discount = Math.round((subtotal * couponDiscountPercentage) / 100);
-                        console.log(`✅ Coupon applied! ${couponDiscountPercentage}% discount = ₹${discount}`);
+            
+            // Calculate total discount from all applied coupons
+            let totalDiscount = 0;
+            if (appliedCoupons.length > 0) {
+                totalDiscount = appliedCoupons.reduce((sum, c) => sum + (c.discountAmount || 0), 0);
+                console.log(`🎟️ Applied ${appliedCoupons.length} coupons with total discount: ₹${totalDiscount}`);
+                
+                // Increment usage count for all coupons
+                for (const c of appliedCoupons) {
+                    try {
+                        await couponModel.findOneAndUpdate(
+                            { code: c.code }, 
+                            { $inc: { usedCount: 1 } }
+                        );
+                        console.log(`✅ Incremented usage for coupon: ${c.code}`);
+                    } catch (error) {
+                        console.error(`⚠️ Failed to increment coupon ${c.code}:`, error.message);
                     }
-                } catch (error) {
-                    console.error('⚠️ Coupon usage failed:', error.message);
-                    // Continue without coupon if it fails
                 }
             }
 
-            const totalAmount = subtotal + shippingCost - discount;
+            const totalAmount = subtotal + shippingCost - totalDiscount;
 
             // Generate unique order ID
             const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -752,20 +768,30 @@ const verifyRazorpay = async (req, res) => {
                 userId: validUserId,
                 items: formattedItems,
                 subtotal: subtotal,
-                discount: discount,
+                discount: totalDiscount,
                 shippingCost: shippingCost,
                 totalAmount: totalAmount,
-                status: 'Confirmed', // Valid enum: Pending, Confirmed, Processing, Shipped, Out for Delivery, Delivered, Cancelled, Refunded, Failed
+                status: 'Confirmed',
                 paymentMethod: 'Razorpay',
                 paymentStatus: 'Paid',
                 isPaid: true,
                 razorpayOrderId: razorpay_order_id,
                 razorpayPaymentId: razorpay_payment_id,
                 shippingAddress: shippingAddress,
-                couponCode: coupon || null,
-                couponDiscount: discount
+                appliedCoupons: appliedCoupons,
+                // Legacy fields for backward compatibility
+                couponCode: appliedCoupons.length > 0 ? appliedCoupons[0].code : null,
+                couponDiscount: totalDiscount
             });
 
+            console.log('🎟️ Order appliedCoupons before save:', newOrder.appliedCoupons);
+            console.log('🎨 Order items with customDesign:', newOrder.items.filter(i => i.customDesign).map(i => ({
+                productName: i.productName,
+                hasCustomDesign: !!i.customDesign,
+                designImageUrl: i.customDesign?.designImageUrl,
+                originalImageUrl: i.customDesign?.originalImageUrl
+            })));
+            
             await newOrder.save();
             console.log('✅ Order saved successfully with ID:', newOrder._id);
             console.log('📋 Order status: Confirmed (Shipment not created yet - waiting for manual confirmation)');

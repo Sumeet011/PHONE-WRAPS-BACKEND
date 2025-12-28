@@ -39,68 +39,75 @@ const createShipment = async (orderData) => {
 
         // Calculate total quantity and weight
         const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-        const estimatedWeight = totalQuantity * 0.05; // Assuming 50g per phone wrap
+        const estimatedWeight = totalQuantity * 0.05; // Assuming 50g per phone wrap (in KG)
 
-        // Prepare shipment data for iThink Logistics
+        // Prepare shipment data according to iThink Logistics API v3 format
         const shipmentData = {
             data: {
-                order_id: orderNumber || orderId,
-                order_date: new Date().toISOString().split('T')[0],
-                pickup_location: ITHINK_PICKUP_LOCATION,
-                channel_id: "",
-                comment: "Phone Wrap Order",
-                billing_customer_name: shippingAddress.fullName,
-                billing_last_name: "",
-                billing_address: shippingAddress.addressLine1,
-                billing_address_2: shippingAddress.addressLine2 || "",
-                billing_city: shippingAddress.city,
-                billing_pincode: shippingAddress.zipCode,
-                billing_state: shippingAddress.state,
-                billing_country: shippingAddress.country || "India",
-                billing_email: shippingAddress.email,
-                billing_phone: shippingAddress.phoneNumber,
-                shipping_is_billing: true,
-                shipping_customer_name: "",
-                shipping_last_name: "",
-                shipping_address: "",
-                shipping_address_2: "",
-                shipping_city: "",
-                shipping_pincode: "",
-                shipping_country: "",
-                shipping_state: "",
-                shipping_email: "",
-                shipping_phone: "",
-                order_items: items.map(item => ({
-                    name: item.productName,
-                    sku: item.productId?.toString() || 'SKU000',
-                    units: item.quantity,
-                    selling_price: item.price,
-                    discount: "",
-                    tax: "",
-                    hsn: ""
-                })),
-                payment_method: paymentMethod === 'COD' ? 'COD' : 'Prepaid',
-                shipping_charges: orderData.shippingCost || 0,
-                giftwrap_charges: 0,
-                transaction_charges: 0,
-                total_discount: orderData.discount || 0,
-                sub_total: subtotal,
-                length: 25,  // Default dimensions in cm
-                breadth: 15,
-                height: 2,
-                weight: estimatedWeight
+                shipments: [{
+                    order: orderNumber || orderId,
+                    order_date: new Date().toISOString().split('T')[0],
+                    total_amount: parseFloat((totalAmount || subtotal || 0).toFixed(2)),
+                    name: shippingAddress.fullName || shippingAddress.name || "Customer",
+                    company_name: "",
+                    add: shippingAddress.addressLine1 || shippingAddress.address || "",
+                    add2: shippingAddress.addressLine2 || "",
+                    add3: "",
+                    pin: String(shippingAddress.zipCode || shippingAddress.pincode || ""),
+                    city: shippingAddress.city || "",
+                    state: shippingAddress.state || "",
+                    country: "India",
+                    phone: String(shippingAddress.phoneNumber || shippingAddress.phone || ""),
+                    email: shippingAddress.email || "",
+                    is_billing_same_as_shipping: "yes",
+                    billing_name: shippingAddress.fullName || shippingAddress.name || "Customer",
+                    billing_add: shippingAddress.addressLine1 || shippingAddress.address || "",
+                    billing_pin: String(shippingAddress.zipCode || shippingAddress.pincode || ""),
+                    billing_city: shippingAddress.city || "",
+                    billing_state: shippingAddress.state || "",
+                    billing_country: "India",
+                    billing_phone: String(shippingAddress.phoneNumber || shippingAddress.phone || ""),
+                    billing_email: shippingAddress.email || "",
+                    products: items.map(item => ({
+                        product_name: item.productName || item.name || 'Product',
+                        product_sku: item.productId?.toString() || item.sku || 'SKU000',
+                        product_quantity: String(item.quantity || 1),
+                        product_price: String(parseFloat((item.price || 0).toFixed(2)))
+                    })),
+                    shipment_length: "25",
+                    shipment_width: "15",
+                    shipment_height: "2",
+                    weight: String(estimatedWeight),
+                    shipping_charges: String(parseFloat((orderData.shippingCost || 0).toFixed(2))),
+                    giftwrap_charges: "0",
+                    transaction_charges: "0",
+                    total_discount: String(parseFloat((orderData.discount || 0).toFixed(2))),
+                    cod_amount: paymentMethod === 'COD' ? String(parseFloat((totalAmount || subtotal || 0).toFixed(2))) : "0",
+                    payment_mode: paymentMethod === 'COD' ? 'COD' : 'Prepaid',
+                    return_address_id: process.env.ITHINK_RETURN_ADDRESS_ID || "1"
+                }],
+                pickup_address_id: process.env.ITHINK_PICKUP_ADDRESS_ID || "95881",
+                access_token: ITHINK_API_KEY,
+                secret_key: ITHINK_SECRET_KEY,
+                logistics: "",
+                s_type: "",
+                order_type: ""
             }
         };
 
+        console.log('📦 Shipment payload:', JSON.stringify(shipmentData, null, 2));
+
+        console.log('📦 Shipment payload:', JSON.stringify(shipmentData, null, 2));
+        console.log('📦 Sending shipment data to iThink Logistics...');
+        console.log('📦 API URL:', `${ITHINK_API_URL}/order/add.json`);
+
         // Make API request to iThink Logistics
         const response = await axios.post(
-            `${ITHINK_API_URL}/create_order.json`,
+            `${ITHINK_API_URL}/order/add.json`,
             shipmentData,
             {
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ITHINK_API_KEY}`,
-                    'Secret-Key': ITHINK_SECRET_KEY
+                    'Content-Type': 'application/json'
                 },
                 timeout: 30000 // 30 second timeout
             }
@@ -111,9 +118,9 @@ const createShipment = async (orderData) => {
         return {
             success: true,
             data: response.data,
-            awbCode: response.data?.awb_code || null,
-            shipmentId: response.data?.shipment_id || null,
-            courierName: response.data?.courier_name || null
+            awbCode: response.data?.awb_code || response.data?.data?.awb_code || null,
+            shipmentId: response.data?.shipment_id || response.data?.data?.order_id || null,
+            courierName: response.data?.courier_name || response.data?.data?.courier_name || null
         };
 
     } catch (error) {
@@ -144,11 +151,11 @@ const trackShipment = async (awbCode) => {
         }
 
         const response = await axios.get(
-            `${ITHINK_API_URL}/track_awb.json`,
+            `${ITHINK_API_URL}/order/track`,
             {
                 params: { awb_code: awbCode },
                 headers: {
-                    'Authorization': `Bearer ${ITHINK_API_KEY}`,
+                    'Access-Token': ITHINK_API_KEY,
                     'Secret-Key': ITHINK_SECRET_KEY
                 }
             }
@@ -180,11 +187,11 @@ const cancelShipment = async (awbCode) => {
         }
 
         const response = await axios.post(
-            `${ITHINK_API_URL}/cancel_order.json`,
+            `${ITHINK_API_URL}/order/cancel`,
             { awb_code: awbCode },
             {
                 headers: {
-                    'Authorization': `Bearer ${ITHINK_API_KEY}`,
+                    'Access-Token': ITHINK_API_KEY,
                     'Secret-Key': ITHINK_SECRET_KEY
                 }
             }

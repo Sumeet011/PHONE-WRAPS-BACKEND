@@ -88,7 +88,8 @@ exports.getCart = asyncHandler(async (req, res) => {
       userId: cart.userId,
       items: populatedItems,
       total,
-      itemCount: cart.items.length
+      itemCount: cart.items.length,
+      appliedCoupons: cart.appliedCoupons || []
     }
   });
 });
