@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../../Models/User/User.model');
 const { mergeCart } = require('../../Models/Cart/Cart.service');
+const logger = require('../utils/logger');
 
 /**
  * Async handler wrapper to catch errors
@@ -14,9 +15,12 @@ const asyncHandler = (fn) => (req, res, next) => {
  * Generate JWT Token
  */
 const generateToken = (userId) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not defined');
+  }
   return jwt.sign(
     { id: userId },
-    process.env.JWT_SECRET || 'your-secret-key-change-this',
+    process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
 };
@@ -33,7 +37,7 @@ const generateOTP = () => {
  */
 const sendEmailOTP = async (email, otp) => {
   // TODO: Integrate with email service (SendGrid, Nodemailer, etc.)
-  console.log(`📧 Sending OTP to ${email}: ${otp}`);
+  logger.info(`Sending OTP to email: ${email}`);
   
   // For development, just log it
   // In production, use actual email service:
@@ -54,7 +58,7 @@ const sendEmailOTP = async (email, otp) => {
  */
 const sendSMSOTP = async (phone, otp) => {
   // TODO: Integrate with SMS service (Twilio, AWS SNS, etc.)
-  console.log(`📱 Sending OTP to ${phone}: ${otp}`);
+  logger.info(`Sending OTP to phone: ${phone}`);
   
   // For development, just log it
   // In production, use actual SMS service:

@@ -2,18 +2,22 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require('cors');
-const morgan = require('morgan'); // optional: logging for dev
+const morgan = require('morgan');
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
 
 // Load environment variables FIRST before anything else
 dotenv.config({ path: __dirname + '/.env' });
 
-// Verify required environment variables
-const requiredEnvVars = ['MONGODB_URI', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingEnvVars.length > 0) {
-  console.error(`❌ Missing required environment variables: ${missingEnvVars.join(', ')}`);
-  console.error('Please check your .env file');
+// Validate environment variables at startup
+const { validateEnv } = require('./utils/envValidator');
+try {
+  validateEnv();
+  console.log('✅ Environment variables validated successfully');
+} catch (error) {
+  console.error('❌ Environment validation failed:', error.message);
   process.exit(1);
 }
 
@@ -38,6 +42,22 @@ const phoneBrandRoutes = require('./routes/phoneBrand.routes');
 // Create Express app
 const app = express();
 
+// Security Middleware
+// Set security HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable if using inline scripts
+  crossOriginEmbedderPolicy: false
+}));
+
+// Data sanitization against NoSQL query injection
+app.use(mongoSanitize());
+
+// Data sanitization against XSS
+app.use(xss());
+
+// Prevent HTTP Parameter Pollution
+app.use(hpp());
+
 // Middleware
 // Increase payload size limit for base64 image uploads (custom designs)
 app.use(express.json({ limit: '50mb' })); // parse JSON bodies with 50MB limit
@@ -49,8 +69,33 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // CORS - Allow frontend to access backend
+const allowedOrigins = [
+  'http://localhost:4000',
+  'http://localhost:5174',
+  'http://localhost:3001',
+  'http://localhost:3000',
+  'https://wraps-brand.vercel.app',
+  'https://phone-wraps-admin.vercel.app',
+  'https://phone-wraps-admin-pannel.vercel.app',
+  'https://phone-cover.vercel.app',
+  'https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev',
+  'https://phone-wraps.vercel.app'
+];
+
 app.use(cors({
-  origin: ['http://localhost:4000','http://localhost:5174', 'http://localhost:3001', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app', 'https://phone-wraps-admin-pannel.vercel.app', 'https://phone-cover.vercel.app','https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev','https://phone-wraps.vercel.app',' phone-wraps-admin-pannel.vercel.app','https://phone-cover.vercel.app'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV === 'development') {
+      // Allow all origins in development
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'User-Id', 'token']

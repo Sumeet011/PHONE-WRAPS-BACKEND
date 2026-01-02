@@ -2,9 +2,16 @@ const User = require('../../Models/User/User.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const twilio = require('twilio');
+const logger = require('../utils/logger');
+const { AppError } = require('../utils/errors');
 
-// Secret key for JWT - in production, use environment variable
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// Secret key for JWT
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  logger.error('JWT_SECRET is not defined in environment variables');
+  throw new Error('JWT_SECRET must be defined');
+}
 
 // Twilio Configuration
 const twilioClient = twilio(
@@ -90,8 +97,8 @@ const existingUser = await User.findOne(
       }
     });
   } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ message: 'Server error during sign up', error: error.message });
+    logger.error('Signup error', error);
+    res.status(500).json({ message: 'Server error during sign up' });
   }
 };
 
@@ -104,10 +111,17 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user with password field (not selected by default)
+    const user = await User.findOne({ email }).select('+password +loginAttempts +lockUntil');
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Check if account is locked
+    if (user.isLocked) {
+      return res.status(423).json({ 
+        message: 'Account is temporarily locked due to too many failed login attempts. Please try again later.' 
+      });
     }
 
     // Check if password field exists
@@ -118,14 +132,23 @@ exports.login = async (req, res) => {
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
+      // Increment failed login attempts
+      await user.incLoginAttempts();
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Reset login attempts on successful login
+    if (user.loginAttempts && user.loginAttempts > 0) {
+      await user.resetLoginAttempts();
     }
 
     // Generate JWT token (no expiration)
     const token = jwt.sign(
-      { userId: user._id, email: user.email },
+      { userId: user._id, email: user.email, role: user.role },
       JWT_SECRET
     );
+
+    logger.info(`User logged in successfully: ${user.email}`);
 
     res.status(200).json({
       message: 'Login successful',
@@ -139,8 +162,8 @@ exports.login = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login', error: error.message });
+    logger.error('Login error', error);
+    res.status(500).json({ message: 'Server error during login' });
   }
 };
 
@@ -177,8 +200,8 @@ exports.loginemailotp = async (req, res) => {
       message: 'OTP sent successfully to your email'
     });
   } catch (error) {
-    console.error('Send email OTP error:', error);
-    res.status(500).json({ message: 'Server error sending OTP', error: error.message });
+    logger.error('Send email OTP error', error);
+    res.status(500).json({ message: 'Server error sending OTP' });
   }
 };
 
@@ -214,8 +237,8 @@ exports.loginphoneotp = async (req, res) => {
       message: 'OTP sent successfully to your phone'
     });
   } catch (error) {
-    console.error('Send phone OTP error:', error);
-    res.status(500).json({ message: 'Server error sending OTP', error: error.message });
+    logger.error('Send phone OTP error', error);
+    res.status(500).json({ message: 'Server error sending OTP' });
   }
 };
 
@@ -276,8 +299,8 @@ exports.verifyEmailOTP = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Verify email OTP error:', error);
-    res.status(500).json({ message: 'Server error verifying OTP', error: error.message });
+    logger.error('Verify email OTP error', error);
+    res.status(500).json({ message: 'Server error during verification' });
   }
 };
 
@@ -337,8 +360,8 @@ exports.verifyPhoneOTP = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Verify phone OTP error:', error);
-    res.status(500).json({ message: 'Server error verifying OTP', error: error.message });
+    logger.error('Verify phone OTP error', error);
+    res.status(500).json({ message: 'Server error during verification' });
   }
 };
 
@@ -365,8 +388,8 @@ exports.adminLogin = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Admin login error:', error);
-    res.status(500).json({ success: false, message: 'Server error during admin login', error: error.message });
+    logger.error('Admin login error', error);
+    res.status(500).json({ message: 'Server error during admin login' });
   }
 };
 
@@ -420,8 +443,8 @@ exports.signupphoneotp = async (req, res) => {
       userId: newUser._id
     });
   } catch (error) {
-    console.error('Signup phone OTP error:', error);
-    res.status(500).json({ message: 'Server error during sign up', error: error.message });
+    logger.error('Signup phone OTP error', error);
+    res.status(500).json({ message: 'Server error during signup' });
   }
 };
 

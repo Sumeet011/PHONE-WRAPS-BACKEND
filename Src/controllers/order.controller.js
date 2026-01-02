@@ -8,6 +8,7 @@ const { useCoupon } = require("./coupon.controller.js");
 const { createShipment } = require("../utils/iThinkLogistics.js");
 const Razorpay = require('razorpay');
 const validator = require("validator");
+const logger = require('../utils/logger');
 require('dotenv').config();
 
 // global variables
@@ -19,8 +20,7 @@ const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
 if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
-    console.error('❌ ERROR: Razorpay credentials missing!');
-    console.error('Please add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to your .env file');
+    logger.error('Razorpay credentials missing. Please add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env file');
 }
 
 // gateway initialize
@@ -30,9 +30,9 @@ try {
         key_id: RAZORPAY_KEY_ID,
         key_secret: RAZORPAY_KEY_SECRET,
     });
-    console.log('✓ Razorpay initialized successfully');
+    logger.info('Razorpay initialized successfully');
 } catch (error) {
-    console.error('❌ Failed to initialize Razorpay:', error.message);
+    logger.error('Failed to initialize Razorpay', error);
 }
 
 // Input sanitization
@@ -96,16 +96,12 @@ const processCollectionItems = async (userId, collectionItem) => {
     try {
         const { productId: collectionId, quantity, selectedBrand, selectedModel, price } = collectionItem;
         
-        console.log(`🎴 Processing collection ${collectionId} for user ${userId}`);
-        
         // Fetch collection details
         const collection = await collectionModel.findById(collectionId).populate('Products');
         if (!collection) {
-            console.error(`❌ Collection not found: ${collectionId}`);
+            logger.error(`Collection not found: ${collectionId}`);
             throw new Error(`Collection not found: ${collectionId}`);
         }
-
-        console.log(`✓ Found collection: ${collection.name} with ${collection.Products?.length || 0} products`);
 
         // Get user's already owned products (handle guest users)
         let ownedProductIds = [];
@@ -114,12 +110,9 @@ const processCollectionItems = async (userId, collectionItem) => {
             try {
                 const user = await userModel.findById(userId).select('unlockedProducts');
                 ownedProductIds = user?.unlockedProducts?.map(id => id.toString()) || [];
-                console.log(`✓ User owns ${ownedProductIds.length} products`);
             } catch (err) {
-                console.warn(`⚠️ Could not fetch user products: ${err.message}`);
+                logger.warn(`Could not fetch user products: ${err.message}`);
             }
-        } else {
-            console.log(`⚠️ Guest user or invalid userId, treating as no owned products`);
         }
 
         // Filter gaming products from collection
@@ -135,7 +128,6 @@ const processCollectionItems = async (userId, collectionItem) => {
 
         if (quantity >= 5) {
             // Complete collection: User gets ALL cards
-            console.log(`✓ Complete collection order: All ${gamingProducts.length} cards`);
             selectedProducts = gamingProducts.slice(0, 5); // Take first 5 cards
         } else {
             // Incomplete: Select random unique cards not owned by user
@@ -145,7 +137,6 @@ const processCollectionItems = async (userId, collectionItem) => {
 
             if (availableProducts.length === 0) {
                 // If user owns all, allow any random cards
-                console.warn(`⚠️ User owns all products, selecting from full collection`);
                 selectedProducts = gamingProducts
                     .sort(() => Math.random() - 0.5)
                     .slice(0, quantity);
@@ -155,8 +146,6 @@ const processCollectionItems = async (userId, collectionItem) => {
                     .sort(() => Math.random() - 0.5)
                     .slice(0, Math.min(quantity, availableProducts.length));
             }
-
-            console.log(`✓ Random selection: ${selectedProducts.length} cards from ${availableProducts.length} available`);
         }
 
         // Convert to order items
@@ -176,7 +165,7 @@ const processCollectionItems = async (userId, collectionItem) => {
 
         return orderItems;
     } catch (error) {
-        console.error('❌ Error processing collection:', error.message);
+        logger.error('Error processing collection', error);
         throw error;
     }
 };
@@ -276,7 +265,7 @@ const placeOrderStripe = async (req,res) => {
 
         res.json({ success: true, session_url: session.url });
     } catch (error) {
-        console.error('Stripe order error:', error);
+        logger.error('Stripe order error', error);
         res.status(500).json({ success: false, message: 'Payment processing failed' });
     }
 }
@@ -302,7 +291,6 @@ const createRazorpayOrder = async (req, res) => {
         
         if (!userId || userId === 'guest' || userId.startsWith('guest_')) {
             // Create a temporary guest user or use a default guest user ID
-            console.log('⚠️ Guest user detected, creating guest user...');
             
             try {
                 // Try to find existing user by email or phone
@@ -328,40 +316,32 @@ const createRazorpayOrder = async (req, res) => {
                         score: 0
                     });
                     await guestUser.save();
-                    console.log('✓ Guest user created:', guestUser._id);
-                } else {
-                    console.log('✓ Existing user found:', guestUser._id);
                 }
                 
                 validUserId = guestUser._id;
             } catch (err) {
-                console.error('❌ Failed to create guest user:', err.message);
+                logger.error('Failed to create guest user', err);
                 return res.status(400).json({ 
                     success: false, 
                     message: "Failed to create user account. Please try again." 
                 });
             }
         } else if (!mongoose.Types.ObjectId.isValid(userId)) {
-            console.error('❌ Invalid userId format:', userId);
+            logger.error(`Invalid userId format: ${userId}`);
             return res.status(400).json({ success: false, message: "Invalid user ID format" });
         } else {
             validUserId = userId;
         }
-
-        console.log('✓ Valid UserId:', validUserId);
-        console.log('✓ Items:', items.length, 'items');
 
         // Process collection items - convert them to actual products
         const processedItems = [];
         for (const item of items) {
             if (item.type === 'collection') {
                 try {
-                    console.log(`🎴 Processing collection: ${item.name || item.productId}`);
                     const collectionProducts = await processCollectionItems(validUserId, item);
                     processedItems.push(...collectionProducts);
-                    console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
                 } catch (collectionError) {
-                    console.error(`❌ Failed to process collection:`, collectionError.message);
+                    logger.error('Failed to process collection', collectionError);
                     // Fallback: Add collection as-is if processing fails
                     processedItems.push({
                         itemType: 'collection',
@@ -389,8 +369,6 @@ const createRazorpayOrder = async (req, res) => {
                 });
             }
         }
-
-        console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
 
         // Calculate totals
         const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -436,10 +414,6 @@ const createRazorpayOrder = async (req, res) => {
         
         const totalAmount = subtotal + shippingCost - totalDiscount;
 
-        console.log('✓ Subtotal:', subtotal);
-        console.log('✓ Shipping:', shippingCost);
-        console.log('✓ Total:', totalAmount);
-
         // Generate unique order ID
         const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
@@ -452,10 +426,7 @@ const createRazorpayOrder = async (req, res) => {
             if (mongoose.Types.ObjectId.isValid(item.productId)) {
                 productObjectId = item.productId;
             } else {
-                // For non-ObjectId product IDs, we need to either:
-                // 1. Look up the product in the database, or
-                // 2. Create a placeholder ObjectId
-                console.log(`⚠️ Invalid productId format: ${item.productId}, creating placeholder`);
+                // For non-ObjectId product IDs, create a placeholder ObjectId
                 productObjectId = new mongoose.Types.ObjectId();
             }
             

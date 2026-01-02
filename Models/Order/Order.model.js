@@ -427,6 +427,16 @@ OrderSummarySchema.statics.getOrdersByStatus = function(status, options = {}) {
         .skip(options.skip || 0);
 };
 
+// Indexes for better query performance
+OrderSummarySchema.index({ userId: 1, createdAt: -1 });
+OrderSummarySchema.index({ orderId: 1 }, { unique: true });
+OrderSummarySchema.index({ orderNumber: 1 });
+OrderSummarySchema.index({ status: 1 });
+OrderSummarySchema.index({ paymentStatus: 1 });
+OrderSummarySchema.index({ 'shippingAddress.email': 1 });
+OrderSummarySchema.index({ 'shippingAddress.phoneNumber': 1 });
+OrderSummarySchema.index({ createdAt: -1 });
+
 const OrderSummary = model("OrderSummary", OrderSummarySchema);
 
 module.exports = OrderSummary;
