@@ -29,4 +29,23 @@ const upload = multer({
   }
 });
 
-module.exports = { cloudinary, upload };
+/**
+ * Upload file to Cloudinary
+ * @param {string} filePath - Local file path
+ * @param {string} folder - Cloudinary folder name
+ * @returns {Promise} - Cloudinary upload result
+ */
+const uploadToCloudinary = async (filePath, folder = 'uploads') => {
+  try {
+    const result = await cloudinary.uploader.upload(filePath, {
+      folder: folder,
+      resource_type: 'auto'
+    });
+    return result;
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    throw error;
+  }
+};
+
+module.exports = { cloudinary, upload, uploadToCloudinary };

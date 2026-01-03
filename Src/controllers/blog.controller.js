@@ -40,13 +40,22 @@ exports.createBlog = async (req, res) => {
 
     // Handle multiple content images upload
     if (req.files && req.files.contentImages) {
+      console.log('📸 Uploading content images:', req.files.contentImages.length);
       for (const file of req.files.contentImages) {
+        console.log('  - Uploading:', file.originalname);
         const result = await uploadToCloudinary(file.path, 'blogs/content');
+        console.log('  ✓ Uploaded to:', result.secure_url);
         uploadedImages.push({
           url: result.secure_url,
           alt: file.originalname,
           caption: ''
         });
+      }
+      console.log('✅ Total uploaded images:', uploadedImages.length);
+    } else {
+      console.log('⚠️ No content images found in request');
+      if (req.files) {
+        console.log('Available files:', Object.keys(req.files));
       }
     }
 
@@ -58,6 +67,25 @@ exports.createBlog = async (req, res) => {
       } catch (e) {
         parsedContentBlocks = null;
       }
+    }
+
+    // Map uploaded images back to content blocks
+    if (parsedContentBlocks && uploadedImages.length > 0) {
+      parsedContentBlocks = parsedContentBlocks.map(block => {
+        if (block.type === 'image' && block.imageIndex !== undefined) {
+          // Replace imageIndex with actual uploaded URL
+          const uploadedImage = uploadedImages[block.imageIndex];
+          if (uploadedImage) {
+            return {
+              type: 'image',
+              content: uploadedImage.url,
+              alt: block.alt || uploadedImage.alt || '',
+              caption: block.caption || ''
+            };
+          }
+        }
+        return block;
+      });
     }
 
     const blogData = {
@@ -189,6 +217,25 @@ exports.updateBlog = async (req, res) => {
       // Get existing blog to merge images
       const existingBlog = await blogService.getBlogById(id);
       updateData.images = [...(existingBlog.images || []), ...uploadedImages];
+      
+      // Map uploaded images back to content blocks
+      if (updateData.contentBlocks && uploadedImages.length > 0) {
+        updateData.contentBlocks = updateData.contentBlocks.map(block => {
+          if (block.type === 'image' && block.imageIndex !== undefined) {
+            // Replace imageIndex with actual uploaded URL
+            const uploadedImage = uploadedImages[block.imageIndex];
+            if (uploadedImage) {
+              return {
+                type: 'image',
+                content: uploadedImage.url,
+                alt: block.alt || uploadedImage.alt || '',
+                caption: block.caption || ''
+              };
+            }
+          }
+          return block;
+        });
+      }
     }
 
     const blog = await blogService.updateBlog(id, updateData);

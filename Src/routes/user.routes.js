@@ -401,11 +401,6 @@ router.delete('/:userId', protect, adminOnly, async (req, res) => {
 });
 
 // ============================================
-// ERROR HANDLER
-// ============================================
-router.use(errorHandler);
-
-// ============================================
 // EXPORT
 // ============================================
 module.exports = router;

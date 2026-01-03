@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../../Models/User/User.model');
 const { mergeCart } = require('../../Models/Cart/Cart.service');
-const logger = require('../utils/logger');
 
 /**
  * Async handler wrapper to catch errors
@@ -15,12 +14,9 @@ const asyncHandler = (fn) => (req, res, next) => {
  * Generate JWT Token
  */
 const generateToken = (userId) => {
-  if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is not defined');
-  }
   return jwt.sign(
     { id: userId },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET || 'your-secret-key-change-this',
     { expiresIn: '30d' }
   );
 };
@@ -37,7 +33,7 @@ const generateOTP = () => {
  */
 const sendEmailOTP = async (email, otp) => {
   // TODO: Integrate with email service (SendGrid, Nodemailer, etc.)
-  logger.info(`Sending OTP to email: ${email}`);
+  console.log(`📧 Sending OTP to ${email}: ${otp}`);
   
   // For development, just log it
   // In production, use actual email service:
@@ -58,7 +54,7 @@ const sendEmailOTP = async (email, otp) => {
  */
 const sendSMSOTP = async (phone, otp) => {
   // TODO: Integrate with SMS service (Twilio, AWS SNS, etc.)
-  logger.info(`Sending OTP to phone: ${phone}`);
+  console.log(`📱 Sending OTP to ${phone}: ${otp}`);
   
   // For development, just log it
   // In production, use actual SMS service:
@@ -344,6 +340,10 @@ exports.getProfile = asyncHandler(async (req, res) => {
       score: user.score || 0,
       rank: user.score || 0,
       addresses: user.addresses || [],
+      unlockedProducts: user.unlockedProducts || [],
+      unlockedCollections: user.unlockedCollections || [],
+      gamingCollections: user.gamingCollections || [],
+      standardProducts: user.standardProducts || [],
       createdAt: user.createdAt
     }
   });
@@ -356,7 +356,7 @@ exports.getProfile = asyncHandler(async (req, res) => {
  */
 exports.updateProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id || req.user.id;
-  const { name, email, phone } = req.body;
+  const { name, email, phone, password } = req.body;
 
   const user = await User.findById(userId);
 
@@ -368,7 +368,13 @@ exports.updateProfile = asyncHandler(async (req, res) => {
   }
 
   // Update fields
-  if (name) user.name = name;
+  if (name) user.username = name;
+  
+  // Update password if provided
+  if (password) {
+    const bcrypt = require('bcryptjs');
+    user.password = await bcrypt.hash(password, 10);
+  }
   
   // If updating email/phone, require OTP verification
   if (email && email !== user.email) {
@@ -378,7 +384,7 @@ exports.updateProfile = asyncHandler(async (req, res) => {
     });
   }
 
-  if (phone && phone !== user.phone) {
+  if (phone && phone !== user.phoneNumber) {
     return res.status(400).json({
       success: false,
       message: 'To change phone, please use send-otp endpoint for verification'
@@ -392,9 +398,9 @@ exports.updateProfile = asyncHandler(async (req, res) => {
     message: 'Profile updated successfully',
     data: {
       id: user._id,
-      name: user.name,
+      name: user.username,
       email: user.email || '',
-      phone: user.phone || '',
+      phone: user.phoneNumber || '',
       role: user.role
     }
   });

@@ -2,22 +2,18 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require('cors');
-const morgan = require('morgan');
-const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
-const hpp = require('hpp');
+const morgan = require('morgan'); // optional: logging for dev
 
 // Load environment variables FIRST before anything else
 dotenv.config({ path: __dirname + '/.env' });
 
-// Validate environment variables at startup
-const { validateEnv } = require('./utils/envValidator');
-try {
-  validateEnv();
-  console.log('✅ Environment variables validated successfully');
-} catch (error) {
-  console.error('❌ Environment validation failed:', error.message);
+// Verify required environment variables
+const requiredEnvVars = ['MONGODB_URI', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error(`❌ Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  console.error('Please check your .env file');
   process.exit(1);
 }
 
@@ -26,6 +22,7 @@ try {
 const { connectDB } = require('./config/db');
 const { errorMiddleware } = require('./utils/errors');
 const authRoutes = require('./routes/auth.routes');
+const userRoutes = require('./routes/user.routes');
 const productRoutes = require('./routes/product.routes');
 const collectionRoutes = require('./routes/collections.routes');
 const groupRoutes = require('./routes/group.routes');
@@ -38,25 +35,10 @@ const designAssetRoutes = require('./routes/designAsset.routes');
 const siteSettingsRoutes = require('./routes/siteSettings.routes');
 const collectionTooltipRoutes = require('./routes/collectionTooltip.routes');
 const phoneBrandRoutes = require('./routes/phoneBrand.routes');
+const suggestedProductRoutes = require('./routes/suggestedProduct.routes');
 
 // Create Express app
 const app = express();
-
-// Security Middleware
-// Set security HTTP headers
-app.use(helmet({
-  contentSecurityPolicy: false, // Disable if using inline scripts
-  crossOriginEmbedderPolicy: false
-}));
-
-// Data sanitization against NoSQL query injection
-app.use(mongoSanitize());
-
-// Data sanitization against XSS
-app.use(xss());
-
-// Prevent HTTP Parameter Pollution
-app.use(hpp());
 
 // Middleware
 // Increase payload size limit for base64 image uploads (custom designs)
@@ -69,33 +51,8 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // CORS - Allow frontend to access backend
-const allowedOrigins = [
-  'http://localhost:4000',
-  'http://localhost:5174',
-  'http://localhost:3001',
-  'http://localhost:3000',
-  'https://wraps-brand.vercel.app',
-  'https://phone-wraps-admin.vercel.app',
-  'https://phone-wraps-admin-pannel.vercel.app',
-  'https://phone-cover.vercel.app',
-  'https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev',
-  'https://phone-wraps.vercel.app'
-];
-
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else if (process.env.NODE_ENV === 'development') {
-      // Allow all origins in development
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: ['http://localhost:4000','http://localhost:5174', 'http://localhost:3001', 'http://localhost:3000', 'https://wraps-brand.vercel.app', 'https://phone-wraps-admin.vercel.app', 'https://phone-wraps-admin-pannel.vercel.app', 'https://phone-cover.vercel.app','https://fantastic-cod-5g44q797xwr4h79vg-3000.app.github.dev','https://phone-wraps.vercel.app',' phone-wraps-admin-pannel.vercel.app','https://phone-cover.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'User-Id', 'token']
@@ -103,6 +60,7 @@ app.use(cors({
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/collections',collectionRoutes);
 app.use('/api/groups', groupRoutes);
@@ -115,6 +73,7 @@ app.use('/api/design-assets', designAssetRoutes);
 app.use('/api/site-settings', siteSettingsRoutes);
 app.use('/api/collection-tooltips', collectionTooltipRoutes);
 app.use('/api/phone-brands', phoneBrandRoutes);
+app.use('/api/suggested-products', suggestedProductRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {

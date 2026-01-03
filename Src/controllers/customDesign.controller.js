@@ -1,6 +1,5 @@
 const Cart = require('../../Models/Cart/Cart.model');
 const { cloudinary } = require('../config/cloudinary');
-const logger = require('../utils/logger');
 
 /**
  * Helper: Async wrapper for error handling
@@ -24,15 +23,13 @@ exports.uploadDesignImage = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Upload to Cloudinary with optimized settings
+    // Upload to Cloudinary with minimal processing for maximum speed
     const result = await cloudinary.uploader.upload(imageData, {
       folder: 'custom-designs',
       resource_type: 'image',
-      transformation: [
-        { quality: 'auto:good' }, // Balanced quality for faster upload
-        { fetch_format: 'auto' },
-        { width: 1500, crop: 'limit' } // Limit max width for reasonable file size
-      ]
+      quality: 'auto:eco', // Fastest upload
+      fetch_format: 'auto',
+      flags: 'lossy' // Enable lossy compression for smaller size
     });
 
     res.status(200).json({
@@ -43,10 +40,11 @@ exports.uploadDesignImage = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error('Cloudinary upload error', error);
+    console.error('Cloudinary upload error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload image'
+      message: 'Failed to upload image',
+      error: error.message
     });
   }
 });

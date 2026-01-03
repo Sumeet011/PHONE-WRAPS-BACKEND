@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const blogController = require('../controllers/blog.controller');
-const { adminAuth } = require('../middleware/auth');
+const { verifyToken, authorize } = require('../middleware/auth');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 
@@ -16,8 +16,8 @@ router.get('/', blogController.getAllBlogs);
 router.get('/:id', blogController.getBlogById);
 
 // Admin routes (authentication required)
-router.post('/', adminAuth, uploadFields, blogController.createBlog);
-router.put('/:id', adminAuth, uploadFields, blogController.updateBlog);
-router.delete('/:id', adminAuth, blogController.deleteBlog);
+router.post('/', verifyToken, authorize('admin'), uploadFields, blogController.createBlog);
+router.put('/:id', verifyToken, authorize('admin'), uploadFields, blogController.updateBlog);
+router.delete('/:id', verifyToken, authorize('admin'), blogController.deleteBlog);
 
 module.exports = router;

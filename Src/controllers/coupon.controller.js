@@ -1,5 +1,4 @@
 const Coupon = require('../../Models/Coupon/Coupon.model');
-const logger = require('../utils/logger');
 
 // Add new coupon (Admin only)
 const addCoupon = async (req, res) => {
@@ -40,10 +39,11 @@ const addCoupon = async (req, res) => {
             coupon: newCoupon
         });
     } catch (error) {
-        logger.error('Add coupon error', error);
+        console.error('Add coupon error:', error);
         res.status(500).json({ 
             success: false, 
-            message: 'Failed to create coupon'
+            message: 'Failed to create coupon',
+            error: error.message 
         });
     }
 };

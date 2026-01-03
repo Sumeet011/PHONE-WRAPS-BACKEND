@@ -46,9 +46,9 @@ const verifyToken = (req, res, next) => {
     // Verify token (no expiration check since tokens don't expire)
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Attach user data to request
+    // Attach user data to request (set both userId and user for compatibility)
     req.userId = decoded.userId;
-    req.user = decoded;
+    req.user = decoded; // This is what authorize() expects
     
     next();
   } catch (error) {

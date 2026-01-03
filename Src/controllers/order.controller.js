@@ -8,19 +8,19 @@ const { useCoupon } = require("./coupon.controller.js");
 const { createShipment } = require("../utils/iThinkLogistics.js");
 const Razorpay = require('razorpay');
 const validator = require("validator");
-const logger = require('../utils/logger');
 require('dotenv').config();
 
 // global variables
 const currency = 'inr'
-const deliveryCharge = 0
+const deliveryCharge = 5
 
 // Verify environment variables
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
 if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
-    logger.error('Razorpay credentials missing. Please add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env file');
+    console.error('❌ ERROR: Razorpay credentials missing!');
+    console.error('Please add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to your .env file');
 }
 
 // gateway initialize
@@ -30,9 +30,9 @@ try {
         key_id: RAZORPAY_KEY_ID,
         key_secret: RAZORPAY_KEY_SECRET,
     });
-    logger.info('Razorpay initialized successfully');
+    console.log('✓ Razorpay initialized successfully');
 } catch (error) {
-    logger.error('Failed to initialize Razorpay', error);
+    console.error('❌ Failed to initialize Razorpay:', error.message);
 }
 
 // Input sanitization
@@ -96,12 +96,16 @@ const processCollectionItems = async (userId, collectionItem) => {
     try {
         const { productId: collectionId, quantity, selectedBrand, selectedModel, price } = collectionItem;
         
+        console.log(`🎴 Processing collection ${collectionId} for user ${userId}`);
+        
         // Fetch collection details
         const collection = await collectionModel.findById(collectionId).populate('Products');
         if (!collection) {
-            logger.error(`Collection not found: ${collectionId}`);
+            console.error(`❌ Collection not found: ${collectionId}`);
             throw new Error(`Collection not found: ${collectionId}`);
         }
+
+        console.log(`✓ Found collection: ${collection.name} with ${collection.Products?.length || 0} products`);
 
         // Get user's already owned products (handle guest users)
         let ownedProductIds = [];
@@ -110,9 +114,12 @@ const processCollectionItems = async (userId, collectionItem) => {
             try {
                 const user = await userModel.findById(userId).select('unlockedProducts');
                 ownedProductIds = user?.unlockedProducts?.map(id => id.toString()) || [];
+                console.log(`✓ User owns ${ownedProductIds.length} products`);
             } catch (err) {
-                logger.warn(`Could not fetch user products: ${err.message}`);
+                console.warn(`⚠️ Could not fetch user products: ${err.message}`);
             }
+        } else {
+            console.log(`⚠️ Guest user or invalid userId, treating as no owned products`);
         }
 
         // Filter gaming products from collection
@@ -128,6 +135,7 @@ const processCollectionItems = async (userId, collectionItem) => {
 
         if (quantity >= 5) {
             // Complete collection: User gets ALL cards
+            console.log(`✓ Complete collection order: All ${gamingProducts.length} cards`);
             selectedProducts = gamingProducts.slice(0, 5); // Take first 5 cards
         } else {
             // Incomplete: Select random unique cards not owned by user
@@ -137,6 +145,7 @@ const processCollectionItems = async (userId, collectionItem) => {
 
             if (availableProducts.length === 0) {
                 // If user owns all, allow any random cards
+                console.warn(`⚠️ User owns all products, selecting from full collection`);
                 selectedProducts = gamingProducts
                     .sort(() => Math.random() - 0.5)
                     .slice(0, quantity);
@@ -146,6 +155,8 @@ const processCollectionItems = async (userId, collectionItem) => {
                     .sort(() => Math.random() - 0.5)
                     .slice(0, Math.min(quantity, availableProducts.length));
             }
+
+            console.log(`✓ Random selection: ${selectedProducts.length} cards from ${availableProducts.length} available`);
         }
 
         // Convert to order items
@@ -155,17 +166,19 @@ const processCollectionItems = async (userId, collectionItem) => {
             productName: product.name,
             collectionId: collection._id,
             collectionName: collection.name,
+            collectionImage: collection.heroImage,
             phoneModel: selectedModel,
             selectedBrand,
             selectedModel,
             quantity: 1,
             price: price / quantity, // Divide price evenly
-            image: product.image
+            image: product.image || product.images?.[0] // Handle both single image and images array
         }));
 
+        console.log(`✓ Created ${orderItems.length} order items with images`);
         return orderItems;
     } catch (error) {
-        logger.error('Error processing collection', error);
+        console.error('❌ Error processing collection:', error.message);
         throw error;
     }
 };
@@ -265,7 +278,7 @@ const placeOrderStripe = async (req,res) => {
 
         res.json({ success: true, session_url: session.url });
     } catch (error) {
-        logger.error('Stripe order error', error);
+        console.error('Stripe order error:', error);
         res.status(500).json({ success: false, message: 'Payment processing failed' });
     }
 }
@@ -291,6 +304,7 @@ const createRazorpayOrder = async (req, res) => {
         
         if (!userId || userId === 'guest' || userId.startsWith('guest_')) {
             // Create a temporary guest user or use a default guest user ID
+            console.log('⚠️ Guest user detected, creating guest user...');
             
             try {
                 // Try to find existing user by email or phone
@@ -316,34 +330,42 @@ const createRazorpayOrder = async (req, res) => {
                         score: 0
                     });
                     await guestUser.save();
+                    console.log('✓ Guest user created:', guestUser._id);
+                } else {
+                    console.log('✓ Existing user found:', guestUser._id);
                 }
                 
                 validUserId = guestUser._id;
             } catch (err) {
-                logger.error('Failed to create guest user', err);
+                console.error('❌ Failed to create guest user:', err.message);
                 return res.status(400).json({ 
                     success: false, 
                     message: "Failed to create user account. Please try again." 
                 });
             }
         } else if (!mongoose.Types.ObjectId.isValid(userId)) {
-            logger.error(`Invalid userId format: ${userId}`);
+            console.error('❌ Invalid userId format:', userId);
             return res.status(400).json({ success: false, message: "Invalid user ID format" });
         } else {
             validUserId = userId;
         }
+
+        console.log('✓ Valid UserId:', validUserId);
+        console.log('✓ Items:', items.length, 'items');
 
         // Process collection items - convert them to actual products
         const processedItems = [];
         for (const item of items) {
             if (item.type === 'collection') {
                 try {
+                    console.log(`🎴 Processing collection: ${item.name || item.productId}`);
                     const collectionProducts = await processCollectionItems(validUserId, item);
                     processedItems.push(...collectionProducts);
+                    console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
                 } catch (collectionError) {
-                    logger.error('Failed to process collection', collectionError);
+                    console.error(`❌ Failed to process collection:`, collectionError.message);
                     // Fallback: Add collection as-is if processing fails
-                    processedItems.push({
+                    const fallbackItem = {
                         itemType: 'collection',
                         productId: item.productId,
                         productName: item.name || 'Collection',
@@ -352,11 +374,16 @@ const createRazorpayOrder = async (req, res) => {
                         selectedModel: item.selectedModel,
                         quantity: item.quantity,
                         price: item.price
-                    });
+                    };
+                    // Add collection image if available
+                    if (item.collectionDetails?.heroImage) {
+                        fallbackItem.collectionImage = item.collectionDetails.heroImage;
+                    }
+                    processedItems.push(fallbackItem);
                 }
             } else {
-                // Regular product or custom-design
-                processedItems.push({
+                // Regular product, custom-design, or suggested product
+                const orderItem = {
                     itemType: item.type || 'product',
                     productId: item.productId,
                     productName: item.productDetails?.name || item.name || (item.type === 'custom-design' ? 'Custom Design' : 'Product'),
@@ -364,14 +391,31 @@ const createRazorpayOrder = async (req, res) => {
                     selectedBrand: item.selectedBrand,
                     selectedModel: item.selectedModel,
                     quantity: item.quantity,
-                    price: item.price,
-                    customDesign: item.customDesign || undefined
-                });
+                    price: item.price
+                };
+                
+                // Add image for products and suggested products
+                if (item.productDetails?.images?.[0]) {
+                    orderItem.image = item.productDetails.images[0];
+                } else if (item.productDetails?.image) {
+                    orderItem.image = item.productDetails.image;
+                } else if (item.image) {
+                    orderItem.image = item.image;
+                }
+                
+                // Only add customDesign for custom-design items
+                if (item.type === 'custom-design' && item.customDesign) {
+                    orderItem.customDesign = item.customDesign;
+                }
+                
+                processedItems.push(orderItem);
             }
         }
 
-        // Calculate totals
-        const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
+
+        // Calculate totals using ORIGINAL cart prices (not processed/divided prices)
+        const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const shippingCost = deliveryCharge;
         
         // Handle multiple coupons
@@ -414,11 +458,16 @@ const createRazorpayOrder = async (req, res) => {
         
         const totalAmount = subtotal + shippingCost - totalDiscount;
 
+        console.log('✓ Subtotal:', subtotal);
+        console.log('✓ Shipping:', shippingCost);
+        console.log('✓ Total:', totalAmount);
+
         // Generate unique order ID
         const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
-        // Format items for the schema - convert string IDs to ObjectIds if possible
+        // Format items for the schema - use PROCESSED items (individual gaming cards with images)
+        // This ensures gaming collection products show as individual cards with their details
         const formattedItems = processedItems.map(item => {
             let productObjectId;
             
@@ -426,21 +475,33 @@ const createRazorpayOrder = async (req, res) => {
             if (mongoose.Types.ObjectId.isValid(item.productId)) {
                 productObjectId = item.productId;
             } else {
-                // For non-ObjectId product IDs, create a placeholder ObjectId
+                console.log(`⚠️ Invalid productId format: ${item.productId}, creating placeholder`);
                 productObjectId = new mongoose.Types.ObjectId();
             }
             
-            return {
+            const formattedItem = {
                 itemType: item.itemType || 'product',
                 productId: productObjectId,
-                productName: item.productName || item.name || 'Product',
-                collectionId: item.collectionId || undefined,
-                phoneModel: item.phoneModel || item.selectedModel || item.selectedBrand || 'Universal',
+                productName: item.productName,
+                phoneModel: item.phoneModel,
+                selectedBrand: item.selectedBrand,
+                selectedModel: item.selectedModel,
                 quantity: item.quantity,
-                price: item.price,
-                customDesign: item.customDesign || undefined
+                price: item.price
             };
+
+            // Add optional fields if they exist
+            if (item.collectionId) formattedItem.collectionId = item.collectionId;
+            if (item.collectionName) formattedItem.collectionName = item.collectionName;
+            if (item.collectionImage) formattedItem.collectionImage = item.collectionImage;
+            if (item.image) formattedItem.image = item.image;
+            if (item.customDesign) formattedItem.customDesign = item.customDesign;
+
+            return formattedItem;
         });
+        
+        console.log(`✓ Formatted ${formattedItems.length} items for order with images:`, 
+            formattedItems.map(i => ({ name: i.productName, hasImage: !!i.image, hasCollectionImage: !!i.collectionImage })));
 
         // Format shipping address for the schema
         const shippingAddress = {
@@ -513,26 +574,48 @@ const placeOrderRazorpay = async (req, res) => {
             return res.status(400).json({ success: false, message: "Order must contain at least one item" });
         }
 
-        let discount = 0;
-        if (coupon) {
+        // Calculate subtotal
+        const subtotal = calculateOrderTotal(items);
+        
+        // Handle multiple coupons (array) or single coupon (string)
+        let totalDiscount = 0;
+        
+        if (Array.isArray(coupon) && coupon.length > 0) {
+            // Multiple coupons - use discountAmount directly from each coupon object
+            console.log('🎟️ Processing multiple coupons:', coupon.length);
+            totalDiscount = coupon.reduce((sum, c) => {
+                const amount = c.discountAmount || 0;
+                console.log(`  - ${c.code}: ₹${amount}`);
+                return sum + amount;
+            }, 0);
+        } else if (typeof coupon === 'string' && coupon) {
+            // Legacy single coupon support
             const couponData = await couponModel.findOne({code:coupon});
             if (couponData) {
-                const subtotal = calculateOrderTotal(items);
                 const percent = couponData.discountPercentage || couponData.discount || 0;
-                discount = (subtotal * percent) / 100;
+                totalDiscount = (subtotal * percent) / 100;
+                console.log(`🎟️ Single coupon ${coupon}: ${percent}% = ₹${totalDiscount}`);
             }
         }
 
-        const totalAmount = calculateOrderTotal(items, deliveryCharge, discount);
+        let totalAmount = subtotal + deliveryCharge - totalDiscount;
 
         // Defensive: prevent NaN
         if (isNaN(totalAmount)) {
             return res.status(400).json({ success: false, message: "Order total calculation failed" });
         }
 
+        // Allow 0 for fully discounted orders
         if (totalAmount < 0) {
-            return res.status(400).json({ success: false, message: "Invalid amount" });
+            console.log('⚠️ Total amount is negative, setting to 0');
+            totalAmount = 0;
         }
+
+        console.log('💰 Razorpay Order Calculation:');
+        console.log(`  Subtotal: ₹${subtotal}`);
+        console.log(`  Discount: -₹${totalDiscount}`);
+        console.log(`  Shipping: ₹${deliveryCharge}`);
+        console.log(`  TOTAL: ₹${totalAmount}`);
 
         const options = {
             amount: Math.round(totalAmount * 100),
@@ -541,6 +624,8 @@ const placeOrderRazorpay = async (req, res) => {
         };
 
         const order = await razorpayInstance.orders.create(options);
+        console.log('✅ Razorpay order created:', order.id, 'Amount:', order.amount / 100);
+        
         res.json({ success: true, order });
     } catch (error) {
         console.error('Razorpay order error:', error);
@@ -586,10 +671,17 @@ const verifyRazorpay = async (req, res) => {
 
             const mongoose = require('mongoose');
             let validUserId;
+            let isNewUser = false;
+            let userToken = null;
             
-            // Handle guest users
+            // Handle guest users OR invalid userId
             if (!userId || userId === 'guest' || userId.startsWith('guest_')) {
-                console.log('⚠️ Guest user detected, finding/creating user...');
+                console.log('⚠️ Guest user detected (no userId provided), finding/creating user...');
+                console.log('📧 Address data:', JSON.stringify(address, null, 2));
+                console.log('📧 Email:', address.email);
+                console.log('📱 Phone:', address.phone);
+                console.log('👤 First Name:', address.firstName);
+                console.log('👤 Last Name:', address.lastName);
                 
                 let guestUser = await userModel.findOne({ 
                     $or: [
@@ -598,44 +690,204 @@ const verifyRazorpay = async (req, res) => {
                     ]
                 });
                 
+                console.log('🔍 Existing user search result:', guestUser ? 'Found' : 'Not found');
+                
                 if (!guestUser) {
-                    const baseUsername = address.email.split('@')[0];
+                    console.log('👤 Creating new user...');
+                    
+                    // Use the full name from checkout form or email as fallback
+                    const fullName = `${address.firstName || ''} ${address.lastName || ''}`.trim();
+                    const baseUsername = fullName || address.email.split('@')[0];
                     const timestamp = Date.now();
                     const uniqueUsername = `${baseUsername}_${timestamp}`;
+                    
+                    // Generate random password for guest user
+                    const bcrypt = require('bcryptjs');
+                    const randomPassword = Math.random().toString(36).slice(-10) + Date.now().toString(36);
+                    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+                    
+                    console.log('✏️ Username will be:', uniqueUsername);
+                    console.log('📝 Full name:', fullName);
                     
                     guestUser = new userModel({
                         username: uniqueUsername,
                         email: address.email,
                         phoneNumber: address.phone,
+                        password: hashedPassword,
                         profilePicture: '',
                         Address: `${address.street}, ${address.city}, ${address.state || address.city}`,
-                        score: 0
+                        score: 0,
+                        isVerified: true,
+                        emailVerified: true
                     });
-                    await guestUser.save();
-                    console.log('✓ Guest user created:', guestUser._id);
+                    
+                    console.log('💾 Attempting to save user:', {
+                        username: guestUser.username,
+                        email: guestUser.email,
+                        phoneNumber: guestUser.phoneNumber
+                    });
+                    
+                    try {
+                        await guestUser.save();
+                        console.log('✅ Guest user created successfully! ID:', guestUser._id);
+                        isNewUser = true;
+                    } catch (saveError) {
+                        // If duplicate key error, try to find the existing user again
+                        if (saveError.code === 11000) {
+                            console.log('⚠️ Duplicate key detected, fetching existing user...');
+                            guestUser = await userModel.findOne({ 
+                                $or: [
+                                    { email: address.email },
+                                    { phoneNumber: address.phone }
+                                ]
+                            });
+                            if (guestUser) {
+                                console.log('✓ Found existing user after duplicate error:', guestUser._id);
+                            } else {
+                                console.error('❌ Could not find user after duplicate error');
+                                throw saveError;
+                            }
+                        } else {
+                            console.error('❌ Error saving user to database:', saveError);
+                            throw saveError;
+                        }
+                    }
                 } else {
                     console.log('✓ Existing user found:', guestUser._id);
                 }
                 
                 validUserId = guestUser._id;
+                
+                // Generate token for auto-login
+                const jwt = require('jsonwebtoken');
+                userToken = jwt.sign(
+                    { id: guestUser._id },
+                    process.env.JWT_SECRET || 'your-secret-key-change-this',
+                    { expiresIn: '30d' }
+                );
             } else if (!mongoose.Types.ObjectId.isValid(userId)) {
                 console.error('❌ Invalid userId format:', userId);
                 return res.status(400).json({ success: false, message: "Invalid user ID format" });
             } else {
-                validUserId = userId;
+                // Check if user actually exists in database
+                console.log('🔍 Checking if user exists in database:', userId);
+                const existingUser = await userModel.findById(userId);
+                
+                if (!existingUser) {
+                    console.log('⚠️ User ID provided but user does not exist in DB. Creating user from address data...');
+                    console.log('📧 Address data:', JSON.stringify(address, null, 2));
+                    
+                    // User doesn't exist, create new user from address data
+                    const fullName = `${address.firstName || ''} ${address.lastName || ''}`.trim();
+                    const baseUsername = fullName || address.email.split('@')[0];
+                    const timestamp = Date.now();
+                    const uniqueUsername = `${baseUsername}_${timestamp}`;
+                    
+                    // Generate random password for new user
+                    const bcrypt = require('bcryptjs');
+                    const randomPassword = Math.random().toString(36).slice(-10) + Date.now().toString(36);
+                    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+                    
+                    const newUser = new userModel({
+                        username: uniqueUsername,
+                        email: address.email,
+                        phoneNumber: address.phone,
+                        password: hashedPassword,
+                        profilePicture: '',
+                        Address: `${address.street}, ${address.city}, ${address.state || address.city}`,
+                        score: 0,
+                        isVerified: true,
+                        emailVerified: true
+                    });
+                    
+                    console.log('💾 Creating user with data:', {
+                        username: newUser.username,
+                        email: newUser.email,
+                        phoneNumber: newUser.phoneNumber
+                    });
+                    
+                    try {
+                        await newUser.save();
+                        console.log('✅ User created successfully! ID:', newUser._id);
+                        validUserId = newUser._id;
+                        isNewUser = true;
+                        
+                        // Generate token for auto-login
+                        const jwt = require('jsonwebtoken');
+                        userToken = jwt.sign(
+                            { id: newUser._id },
+                            process.env.JWT_SECRET || 'your-secret-key-change-this',
+                            { expiresIn: '30d' }
+                        );
+                    } catch (saveError) {
+                        // If duplicate key error, try to find the existing user
+                        if (saveError.code === 11000) {
+                            console.log('⚠️ Duplicate key detected, fetching existing user...');
+                            const existingUserByEmail = await userModel.findOne({ 
+                                $or: [
+                                    { email: address.email },
+                                    { phoneNumber: address.phone }
+                                ]
+                            });
+                            if (existingUserByEmail) {
+                                console.log('✓ Found existing user after duplicate error:', existingUserByEmail._id);
+                                validUserId = existingUserByEmail._id;
+                                // Generate token for existing user
+                                const jwt = require('jsonwebtoken');
+                                userToken = jwt.sign(
+                                    { id: existingUserByEmail._id },
+                                    process.env.JWT_SECRET || 'your-secret-key-change-this',
+                                    { expiresIn: '30d' }
+                                );
+                            } else {
+                                console.error('❌ Could not find user after duplicate error');
+                                throw saveError;
+                            }
+                        } else {
+                            console.error('❌ Error saving user to database:', saveError);
+                            throw saveError;
+                        }
+                    }
+                } else {
+                    console.log('✓ User exists in database:', userId);
+                    validUserId = userId;
+                }
             }
 
             // Process collection items - convert them to actual products
             const processedItems = [];
+            const originalItemsMap = {}; // Map to preserve original cart data
+            
+            console.log(`\n🔍 === PROCESSING ${items.length} CART ITEMS ===`);
             for (const item of items) {
+                console.log(`\n📦 Item: ${item.name || item.productName}`);
+                console.log(`   - Type: ${item.type}`);
+                console.log(`   - ProductId: ${item.productId}`);
+                console.log(`   - Quantity: ${item.quantity}`);
+                
+                // Store original cart item for reference
+                const itemKey = `${item.productId}_${item.type}`;
+                originalItemsMap[itemKey] = {
+                    price: item.price,
+                    quantity: item.quantity,
+                    name: item.name,
+                    type: item.type
+                };
+                
                 if (item.type === 'collection') {
                     try {
                         console.log(`🎴 Processing collection: ${item.name || item.productId}`);
                         const collectionProducts = await processCollectionItems(validUserId, item);
                         processedItems.push(...collectionProducts);
                         console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
+                        console.log(`   Products:`, collectionProducts.map(p => ({
+                            name: p.productName,
+                            image: p.image ? 'yes' : 'no',
+                            collectionImage: p.collectionImage ? 'yes' : 'no'
+                        })));
                     } catch (collectionError) {
                         console.error(`❌ Failed to process collection:`, collectionError.message);
+                        console.error(`   Stack:`, collectionError.stack);
                         // Fallback: Add collection as-is if processing fails
                         processedItems.push({
                             itemType: 'collection',
@@ -649,8 +901,9 @@ const verifyRazorpay = async (req, res) => {
                         });
                     }
                 } else {
-                    // Regular product or custom-design
-                    processedItems.push({
+                    // Regular product, custom-design, or suggested product
+                    console.log(`📦 Processing regular item: ${item.name}`);
+                    const orderItem = {
                         itemType: item.type || 'product',
                         productId: item.productId,
                         productName: item.productDetails?.name || item.name || (item.type === 'custom-design' ? 'Custom Design' : 'Product'),
@@ -658,16 +911,36 @@ const verifyRazorpay = async (req, res) => {
                         selectedBrand: item.selectedBrand,
                         selectedModel: item.selectedModel,
                         quantity: item.quantity,
-                        price: item.price,
-                        customDesign: item.customDesign || undefined
-                    });
+                        price: item.price
+                    };
+                    
+                    // Add image for products and suggested products
+                    if (item.productDetails?.images?.[0]) {
+                        orderItem.image = item.productDetails.images[0];
+                        console.log(`   ✓ Added image from productDetails.images`);
+                    } else if (item.productDetails?.image) {
+                        orderItem.image = item.productDetails.image;
+                        console.log(`   ✓ Added image from productDetails.image`);
+                    } else if (item.image) {
+                        orderItem.image = item.image;
+                        console.log(`   ✓ Added image from item.image`);
+                    }
+                    
+                    // Only add customDesign for custom-design items
+                    if (item.type === 'custom-design' && item.customDesign) {
+                        orderItem.customDesign = item.customDesign;
+                        console.log(`   ✓ Added customDesign data`);
+                    }
+                    
+                    processedItems.push(orderItem);
+                    console.log(`   ✓ Added to processedItems`);
                 }
             }
 
             console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
 
-            // Calculate totals
-            const subtotal = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            // Calculate totals using ORIGINAL cart prices (not processed/divided prices)
+            const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const shippingCost = deliveryCharge;
             
             // Calculate total discount from all applied coupons
@@ -696,7 +969,8 @@ const verifyRazorpay = async (req, res) => {
             const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
-            // Format items for the schema
+            // Format items for the schema - use PROCESSED items (individual gaming cards with images)
+            // This ensures gaming collection products show as individual cards with their details
             const formattedItems = processedItems.map(item => {
                 let productObjectId;
                 
@@ -707,17 +981,29 @@ const verifyRazorpay = async (req, res) => {
                     productObjectId = new mongoose.Types.ObjectId();
                 }
                 
-                return {
+                const formattedItem = {
                     itemType: item.itemType || 'product',
                     productId: productObjectId,
-                    productName: item.productName || item.name || 'Product',
-                    collectionId: item.collectionId || undefined,
-                    phoneModel: item.phoneModel || item.selectedModel || item.selectedBrand || 'Universal',
+                    productName: item.productName,
+                    phoneModel: item.phoneModel,
+                    selectedBrand: item.selectedBrand,
+                    selectedModel: item.selectedModel,
                     quantity: item.quantity,
-                    price: item.price,
-                    customDesign: item.customDesign || undefined
+                    price: item.price
                 };
+                
+                // Add optional fields if they exist
+                if (item.collectionId) formattedItem.collectionId = item.collectionId;
+                if (item.collectionName) formattedItem.collectionName = item.collectionName;
+                if (item.collectionImage) formattedItem.collectionImage = item.collectionImage;
+                if (item.image) formattedItem.image = item.image;
+                if (item.customDesign) formattedItem.customDesign = item.customDesign;
+                
+                return formattedItem;
             });
+            
+            console.log(`✓ Formatted ${formattedItems.length} items for order with images:`, 
+                formattedItems.map(i => ({ name: i.productName, hasImage: !!i.image, hasCollectionImage: !!i.collectionImage })));
 
             // Format shipping address
             const shippingAddress = {
@@ -769,43 +1055,230 @@ const verifyRazorpay = async (req, res) => {
 
             // Add ordered products to user's unlocked collection
             try {
-                const productIdsToUnlock = formattedItems
+                console.log('🔍 Processed items for unlocking:', JSON.stringify(processedItems.map(item => ({
+                    itemType: item.itemType,
+                    productId: item.productId,
+                    collectionId: item.collectionId
+                })), null, 2));
+                
+                const productIdsToUnlock = processedItems
                     .filter(item => item.itemType === 'product' && item.productId)
                     .map(item => item.productId);
 
-                const collectionIdsToUnlock = formattedItems
+                const collectionIdsToUnlock = processedItems
                     .filter(item => item.collectionId)
                     .map(item => item.collectionId)
-                    .filter((value, index, self) => self.indexOf(value) === index); // Unique
+                    .filter((value, index, self) => {
+                        const strValue = value.toString();
+                        return self.findIndex(v => v.toString() === strValue) === index;
+                    }); // Unique collections
 
+                console.log('🔓 Products to unlock:', productIdsToUnlock);
+                console.log('🔓 Collections to unlock:', collectionIdsToUnlock);
+
+                // Legacy unlocking (keep for backward compatibility)
                 if (productIdsToUnlock.length > 0) {
-                    await userModel.findByIdAndUpdate(validUserId, {
+                    const updateResult = await userModel.findByIdAndUpdate(validUserId, {
                         $addToSet: { 
                             unlockedProducts: { $each: productIdsToUnlock }
                         }
-                    });
-                    console.log(`🔓 Unlocked ${productIdsToUnlock.length} products for user`);
+                    }, { new: true });
+                    console.log(`🔓 Unlocked ${productIdsToUnlock.length} products for user. Total products now: ${updateResult.unlockedProducts?.length || 0}`);
                 }
 
                 if (collectionIdsToUnlock.length > 0) {
-                    await userModel.findByIdAndUpdate(validUserId, {
+                    const updateResult = await userModel.findByIdAndUpdate(validUserId, {
                         $addToSet: { 
                             unlockedCollections: { $each: collectionIdsToUnlock }
                         }
-                    });
-                    console.log(`🔓 Unlocked ${collectionIdsToUnlock.length} collections for user`);
+                    }, { new: true });
+                    console.log(`🔓 Unlocked ${collectionIdsToUnlock.length} collections for user. Total collections now: ${updateResult.unlockedCollections?.length || 0}`);
                 }
+
+                // NEW: Organize products into gaming collections and standard products
+                const collectionModel = require('../../Models/Collection/Collection.model');
+                const productModel = require('../../Models/Products/Product.model');
+                
+                // Group items by collection
+                const collectionGroups = {};
+                const standardProducts = [];
+                
+                console.log('📦 Processing items for gaming collections...');
+                console.log('Total processed items:', processedItems.length);
+                
+                for (const item of processedItems) {
+                    console.log('Processing item:', {
+                        itemType: item.itemType,
+                        productId: item.productId,
+                        productName: item.productName,
+                        collectionId: item.collectionId,
+                        collectionName: item.collectionName
+                    });
+                    
+                    if (item.collectionId) {
+                        // This is a gaming collection product
+                        const collId = item.collectionId.toString();
+                        
+                        if (!collectionGroups[collId]) {
+                            // Fetch collection details once per collection
+                            const collection = await collectionModel.findById(collId);
+                            if (collection) {
+                                collectionGroups[collId] = {
+                                    collectionId: collId,
+                                    collectionName: collection.name,
+                                    collectionImage: collection.heroImage || '',
+                                    cards: []
+                                };
+                                console.log(`✅ Created collection group for: ${collection.name}`);
+                            } else {
+                                console.error(`❌ Collection not found: ${collId}`);
+                                continue;
+                            }
+                        }
+                        
+                        // Fetch product details and add to cards
+                        if (item.productId) {
+                            const product = await productModel.findById(item.productId);
+                            if (product) {
+                                // Check if this card is already in the array
+                                const cardExists = collectionGroups[collId].cards.some(
+                                    card => card.productId.toString() === item.productId.toString()
+                                );
+                                
+                                if (!cardExists) {
+                                    const imageUrl = product.image || product.images?.[0] || '';
+                                    collectionGroups[collId].cards.push({
+                                        productId: item.productId,
+                                        name: product.name,
+                                        image: imageUrl
+                                    });
+                                    console.log(`  ✅ Added card: ${product.name} (${imageUrl.substring(0, 50)}...)`);
+                                } else {
+                                    console.log(`  ⚠️ Card already exists: ${product.name}`);
+                                }
+                            } else {
+                                console.error(`  ❌ Product not found: ${item.productId}`);
+                            }
+                        }
+                    } else if (item.productId && item.itemType !== 'custom-design') {
+                        // Standard product (not part of gaming collection)
+                        const product = await productModel.findById(item.productId);
+                        if (product) {
+                            const imageUrl = product.image || product.images?.[0] || '';
+                            standardProducts.push({
+                                productId: item.productId,
+                                name: product.name,
+                                image: imageUrl
+                            });
+                            console.log(`✅ Added standard product: ${product.name} (${imageUrl.substring(0, 50)}...)`);
+                        }
+                    }
+                }
+                
+                console.log('🎮 Gaming collections to add:', Object.keys(collectionGroups).length);
+                Object.keys(collectionGroups).forEach(collId => {
+                    const coll = collectionGroups[collId];
+                    console.log(`  - ${coll.collectionName}: ${coll.cards.length} cards`);
+                });
+                console.log('🃏 Standard products to add:', standardProducts.length);
+                
+                // Update user with new gaming collections
+                for (const collId in collectionGroups) {
+                    const collectionData = collectionGroups[collId];
+                    
+                    // Check if collection already exists for user
+                    const user = await userModel.findById(validUserId);
+                    const existingCollection = user.gamingCollections?.find(
+                        gc => gc.collectionId.toString() === collId
+                    );
+                    
+                    if (existingCollection) {
+                        // Add new cards to existing collection (avoid duplicates)
+                        const newCards = collectionData.cards.filter(card => 
+                            !existingCollection.cards.some(
+                                existingCard => existingCard.productId.toString() === card.productId.toString()
+                            )
+                        );
+                        
+                        if (newCards.length > 0) {
+                            await userModel.findOneAndUpdate(
+                                { 
+                                    _id: validUserId,
+                                    'gamingCollections.collectionId': collId
+                                },
+                                {
+                                    $push: {
+                                        'gamingCollections.$.cards': { $each: newCards }
+                                    }
+                                }
+                            );
+                            console.log(`✅ Added ${newCards.length} new cards to existing collection: ${collectionData.collectionName}`);
+                        }
+                    } else {
+                        // Add new collection
+                        await userModel.findByIdAndUpdate(validUserId, {
+                            $push: {
+                                gamingCollections: collectionData
+                            }
+                        });
+                        console.log(`✅ Added new gaming collection: ${collectionData.collectionName} with ${collectionData.cards.length} cards`);
+                    }
+                }
+                
+                // Update user with standard products (avoid duplicates)
+                if (standardProducts.length > 0) {
+                    const user = await userModel.findById(validUserId);
+                    const newStandardProducts = standardProducts.filter(product =>
+                        !user.standardProducts?.some(
+                            sp => sp.productId.toString() === product.productId.toString()
+                        )
+                    );
+                    
+                    if (newStandardProducts.length > 0) {
+                        await userModel.findByIdAndUpdate(validUserId, {
+                            $push: {
+                                standardProducts: { $each: newStandardProducts }
+                            }
+                        });
+                        console.log(`✅ Added ${newStandardProducts.length} new standard products`);
+                    }
+                }
+                
+                // Calculate and update user score based on gaming card levels
+                try {
+                    const user = await userModel.findById(validUserId).populate('gamingCollections.cards.productId');
+                    let totalScore = 0;
+                    
+                    for (const collection of user.gamingCollections || []) {
+                        for (const card of collection.cards || []) {
+                            if (card.productId && card.productId.level) {
+                                const level = parseInt(card.productId.level) || 0;
+                                totalScore += level;
+                            }
+                        }
+                    }
+                    
+                    await userModel.findByIdAndUpdate(validUserId, {
+                        $set: { score: totalScore }
+                    });
+                    
+                    console.log(`🏆 Updated user score to ${totalScore} (sum of all card levels)`);
+                } catch (scoreErr) {
+                    console.error('⚠️ Could not update user score:', scoreErr.message);
+                }
+                
             } catch (err) {
                 console.error('⚠️ Could not unlock products:', err.message);
+                console.error('⚠️ Error stack:', err.stack);
             }
 
-            // Clear user's cart from Cart collection
+            // Clear user's cart from Cart collection (including items and applied coupons)
             try {
                 await cartModel.findOneAndUpdate(
                     { userId: validUserId },
-                    { $set: { items: [] } }
+                    { $set: { items: [], appliedCoupons: [] } }
                 );
-                console.log('🛒 Cart cleared for user');
+                console.log('🛒 Cart and coupons cleared for user');
             } catch (err) {
                 console.log('⚠️ Could not clear cart:', err.message);
             }
@@ -814,7 +1287,10 @@ const verifyRazorpay = async (req, res) => {
                 success: true, 
                 message: "Payment successful! Order placed.",
                 orderId: newOrder._id,
-                orderNumber: orderNumber
+                orderNumber: orderNumber,
+                userId: validUserId.toString(),
+                token: userToken,
+                isNewUser: isNewUser
             });
         } else {
             console.log('❌ Payment not completed. Status:', orderInfo.status);
@@ -833,7 +1309,17 @@ const verifyRazorpay = async (req, res) => {
 
 const allOrders = async (req,res) => {
     try {
-        const orders = await orderModel.find({ isPaid: true }).sort({ createdAt: -1 });
+        // Populate product/collection data as fallback for orders without direct image fields
+        const orders = await orderModel.find({ isPaid: true })
+            .populate({
+                path: 'items.productId',
+                select: 'name images image type'
+            })
+            .populate({
+                path: 'items.collectionId',
+                select: 'name type heroImage'
+            })
+            .sort({ createdAt: -1 });
         res.json({success:true,orders:orders})
     } catch (error) {
         console.error('Fetch all orders error:', error);
@@ -855,9 +1341,20 @@ const userOrders = async (req, res) => {
             
             if (email) {
                 // Find all orders where shipping address email matches
+                // Populate collectionId to get collection details
                 const orders = await orderModel.find({ 
                     'shippingAddress.email': email 
-                }).sort({ createdAt: -1 });
+                })
+                .populate({
+                    path: 'items.collectionId',
+                    select: 'name type heroImage Products',
+                    populate: {
+                        path: 'Products',
+                        select: 'name images'
+                    }
+                })
+                .populate('items.productId', 'name images')
+                .sort({ createdAt: -1 });
                 
                 console.log(`✓ Found ${orders.length} orders for email: ${email}`);
                 return res.json({ success: true, orders: orders });
@@ -877,7 +1374,17 @@ const userOrders = async (req, res) => {
             if (email) {
                 const orders = await orderModel.find({ 
                     'shippingAddress.email': email 
-                }).sort({ createdAt: -1 });
+                })
+                .populate({
+                    path: 'items.collectionId',
+                    select: 'name type heroImage Products',
+                    populate: {
+                        path: 'Products',
+                        select: 'name images'
+                    }
+                })
+                .populate('items.productId', 'name images')
+                .sort({ createdAt: -1 });
                 
                 console.log(`✓ Found ${orders.length} orders for email: ${email}`);
                 return res.json({ success: true, orders: orders });
@@ -891,7 +1398,18 @@ const userOrders = async (req, res) => {
         }
         
         // Fetch all orders for the user (including COD orders with isPaid: false)
-        const orders = await orderModel.find({ userId: userId }).sort({ createdAt: -1 });
+        // Populate collectionId to get collection details with products
+        const orders = await orderModel.find({ userId: userId })
+            .populate({
+                path: 'items.collectionId',
+                select: 'name type heroImage Products',
+                populate: {
+                    path: 'Products',
+                    select: 'name images'
+                }
+            })
+            .populate('items.productId', 'name images')
+            .sort({ createdAt: -1 });
         console.log(`✓ Found ${orders.length} orders for user`);
         res.json({ success: true, orders: orders });
     } catch (error) {
@@ -910,8 +1428,8 @@ const getOrderById = async (req, res) => {
 
         const order = await orderModel.findById(orderId)
             .populate('userId', 'name email')
-            .populate('items.productId', 'name image price')
-            .populate('items.collectionId', 'name type');
+            .populate('items.productId', 'name image images price')
+            .populate('items.collectionId', 'name type heroImage');
 
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
@@ -1147,13 +1665,13 @@ const placeOrderCOD = async (req, res) => {
         await newOrder.save();
         console.log('✓ COD Order saved with ID:', newOrder._id);
 
-        // Clear user's cart from Cart collection
+        // Clear user's cart from Cart collection (including items and applied coupons)
         try {
             await cartModel.findOneAndUpdate(
                 { userId: validUserId },
-                { $set: { items: [] } }
+                { $set: { items: [], appliedCoupons: [] } }
             );
-            console.log('🛒 Cart cleared for user');
+            console.log('🛒 Cart and coupons cleared for user');
         } catch (err) {
             console.log('⚠️ Could not clear cart:', err.message);
         }

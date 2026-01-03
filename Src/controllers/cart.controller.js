@@ -1,6 +1,7 @@
 const Cart = require('../../Models/Cart/Cart.model');
 const Product = require('../../Models/Products/Product.model');
 const Collection = require('../../Models/Collection/Collection.model');
+const SuggestedProduct = require('../../Models/SuggestedProduct/SuggestedProduct.model');
 
 /**
  * Helper: Async wrapper for error handling
@@ -45,6 +46,13 @@ exports.getCart = asyncHandler(async (req, res) => {
             productDetails.image = productDetails.heroImage;
           }
           // Clean up: collections shouldn't have customDesign
+          delete itemObj.customDesign;
+        } else if (item.type === 'suggested') {
+          productDetails = await SuggestedProduct.findById(item.productId).select('name image price description').lean();
+          if (!productDetails) {
+            console.warn(`⚠️ Suggested product not found for ID: ${item.productId}`);
+          }
+          // Clean up: suggested products shouldn't have customDesign
           delete itemObj.customDesign;
         } else if (item.type === 'custom-design') {
           // For custom designs, use the design image from the item itself
@@ -112,10 +120,10 @@ exports.addItem = asyncHandler(async (req, res) => {
     });
   }
 
-  if (!type || !['product', 'collection', 'custom-design'].includes(type)) {
+  if (!type || !['product', 'collection', 'custom-design', 'suggested'].includes(type)) {
     return res.status(400).json({ 
       success: false, 
-      message: 'Type must be "product", "collection", or "custom-design"' 
+      message: 'Type must be "product", "collection", "custom-design", or "suggested"' 
     });
   }
 
