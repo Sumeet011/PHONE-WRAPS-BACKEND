@@ -22,7 +22,7 @@ const OrderSummarySchema = new Schema({
     items: [{
         itemType: {
             type: String,
-            enum: ['product', 'collection', 'custom-design'],
+            enum: ['product', 'collection', 'custom-design', 'suggested'],
             default: 'product'
         },
         productId: {
@@ -52,6 +52,16 @@ const OrderSummarySchema = new Schema({
             type: Number,
             required: true,
             min: 0
+        },
+        // Image fields
+        image: {
+            type: String
+        },
+        collectionImage: {
+            type: String
+        },
+        collectionName: {
+            type: String
         },
         // Custom Design specific fields
         customDesign: {
@@ -426,16 +436,6 @@ OrderSummarySchema.statics.getOrdersByStatus = function(status, options = {}) {
         .limit(options.limit || 50)
         .skip(options.skip || 0);
 };
-
-// Indexes for better query performance
-OrderSummarySchema.index({ userId: 1, createdAt: -1 });
-OrderSummarySchema.index({ orderId: 1 }, { unique: true });
-OrderSummarySchema.index({ orderNumber: 1 });
-OrderSummarySchema.index({ status: 1 });
-OrderSummarySchema.index({ paymentStatus: 1 });
-OrderSummarySchema.index({ 'shippingAddress.email': 1 });
-OrderSummarySchema.index({ 'shippingAddress.phoneNumber': 1 });
-OrderSummarySchema.index({ createdAt: -1 });
 
 const OrderSummary = model("OrderSummary", OrderSummarySchema);
 

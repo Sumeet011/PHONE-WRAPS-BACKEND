@@ -32,8 +32,11 @@ class BlogService {
         ];
       }
       
+      // Select only necessary fields for blog list to improve performance
       const blogs = await Blog.find(query)
-        .sort({ createdAt: -1 });
+        .select('_id title excerpt image author category status createdAt updatedAt views')
+        .sort({ createdAt: -1 })
+        .lean(); // Use lean() for faster queries when we don't need mongoose documents
       
       return blogs;
     } catch (error) {

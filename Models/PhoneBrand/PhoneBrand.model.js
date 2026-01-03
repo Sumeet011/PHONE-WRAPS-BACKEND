@@ -4,7 +4,6 @@ const PhoneBrandSchema = new Schema({
     brandName: {
         type: String,
         required: true,
-        unique: true,
         trim: true
     },
     models: [{

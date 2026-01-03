@@ -11,6 +11,13 @@ const CollectionSchema = new Schema({
         default: 'normal',
         required: true,
     },
+    price: {
+        type: Number,
+        required: function() {
+            return this.type === 'gaming';
+        },
+        min: 0
+    },
     heroImage: {
         type: String,
         default: null,
@@ -44,12 +51,6 @@ const CollectionSchema = new Schema({
 }, {
     timestamps: true
 });
-
-// Indexes for better query performance
-CollectionSchema.index({ name: 1 });
-CollectionSchema.index({ type: 1 });
-CollectionSchema.index({ createdAt: -1 });
-CollectionSchema.index({ name: 'text', description: 'text' }); // Text search
 
 const Collection = model('Collection', CollectionSchema);
 

@@ -3,11 +3,11 @@ const { Schema, model } = require('mongoose');
 const CartItemSchema = new Schema({
   type: {
     type: String,
-    enum: ['product', 'collection', 'custom-design'],
+    enum: ['product', 'collection', 'custom-design', 'suggested'],
     required: true
   },
   productId: {
-    type: String, // Custom ID like "P1001", "C202", or "CUSTOM-{timestamp}"
+    type: String, // Custom ID like "P1001", "C202", or "CUSTOM-{timestamp}", or suggested product ObjectId
     required: true
   },
   quantity: {

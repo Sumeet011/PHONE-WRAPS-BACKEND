@@ -60,10 +60,12 @@ const ProductSchema = new Schema({
             default: false
         }
     },
-    // Pricing
+    // Pricing - required only for Standard products, gaming products get price from collection
     price:{
         type: Number,
-        required: true,
+        required: function() {
+            return this.type === 'Standard';
+        }
     },
     // Media
     image:{
@@ -98,15 +100,6 @@ const ProductSchema = new Schema({
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
-
-// Indexes for better query performance
-ProductSchema.index({ type: 1 });
-ProductSchema.index({ category: 1 });
-ProductSchema.index({ price: 1 });
-ProductSchema.index({ 'design.color.primary': 1 });
-ProductSchema.index({ createdAt: -1 });
-ProductSchema.index({ name: 'text', description: 'text' }); // Text search
-
 const Product = model('Product', ProductSchema);
 
 module.exports = Product;

@@ -24,26 +24,7 @@ const UserSchema = new Schema({
         minlength: 6,
         select: false // Don't return password by default in queries
     },
-    emailOTP: {
-        type: String,
-        select: false // Don't return OTP in queries
-    },
-    emailOTPExpires: {
-        type: Date,
-        select: false
-    },
-    emailVerified: {
-        type: Boolean,
-        default: false
-    },
-    phoneOTP: {
-        type: String,
-        select: false // Don't return OTP in queries
-    },
-    phoneOTPExpires: {
-        type: Date,
-        select: false
-    },
+    
     profilePicture: {
         type: String,
         default: ''
@@ -58,6 +39,32 @@ const UserSchema = new Schema({
     unlockedCollections: [{
         type: Schema.Types.ObjectId,
         ref: 'Collection'
+    }],
+    // New structure for gaming collections with their products
+    gamingCollections: [{
+        collectionId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Collection'
+        },
+        collectionName: String,
+        collectionImage: String,
+        cards: [{
+            productId: {
+                type: Schema.Types.ObjectId,
+                ref: 'Product'
+            },
+            name: String,
+            image: String
+        }]
+    }],
+    // Standard products (not part of gaming collections)
+    standardProducts: [{
+        productId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Product'
+        },
+        name: String,
+        image: String
     }],
     score: {
         type: Number,
