@@ -30,7 +30,20 @@ router.post('/', (req, res, next) => {
   });
 }, controller.create);
 
-router.patch('/:id', controller.update);
+router.patch('/:id', (req, res, next) => {
+  upload.single('image1')(req, res, (err) => {
+    if (err) {
+      console.error('Multer/Cloudinary error on update:', err);
+      return res.status(400).json({ 
+        success: false, 
+        message: err.message || 'File upload failed',
+        error: err.toString()
+      });
+    }
+    next();
+  });
+}, controller.update);
+
 router.delete('/:id', controller.remove);
 
 module.exports = router;

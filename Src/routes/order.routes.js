@@ -13,7 +13,10 @@ const {
     getLeaderboard,
     createOrderShipment,
     cancelOrderShipment,
-    cancelOrder
+    cancelOrder,
+    submitReturnRequest,
+    getReturnRequests,
+    updateReturnStatus
 } = require('../controllers/order.controller.js')
 
 const orderRouter = express.Router()
@@ -46,6 +49,11 @@ orderRouter.post('/verifyRazorpay', verifyRazorpay)
 
 // COD (Cash on Delivery)
 orderRouter.post('/cod', placeOrderCOD)
+
+// Return Request Routes
+orderRouter.post('/return-request', submitReturnRequest)
+orderRouter.get('/return-requests', getReturnRequests)
+orderRouter.post('/return-status', updateReturnStatus)
 
 // Delete order
 orderRouter.post('/delete', deleteOrder)

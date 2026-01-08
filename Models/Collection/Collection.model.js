@@ -18,6 +18,10 @@ const CollectionSchema = new Schema({
         },
         min: 0
     },
+    plateprice: {
+        type: Number,
+        min: 0
+    },
     heroImage: {
         type: String,
         default: null,

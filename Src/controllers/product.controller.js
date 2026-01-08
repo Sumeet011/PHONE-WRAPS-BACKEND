@@ -139,8 +139,54 @@ exports.create = asyncHandler(async (req, res) => {
 });
 
 exports.update = asyncHandler(async (req, res) => {
-  const doc = await updateProduct(req.params.id, req.body);
-  res.status(200).json({ success: true, data: doc });
+  try {
+    const updateData = {};
+    
+    // Handle text fields from FormData
+    if (req.body.name) updateData.name = req.body.name;
+    if (req.body.description) updateData.description = req.body.description;
+    if (req.body.price) updateData.price = Number(req.body.price);
+    if (req.body.category) updateData.category = req.body.category;
+    if (req.body.material) updateData.material = req.body.material;
+    if (req.body.finish) updateData.finish = req.body.finish;
+    if (req.body.level) updateData.level = req.body.level;
+    
+    // Handle image upload
+    if (req.file && req.file.path) {
+      updateData.image = req.file.path;
+    }
+    
+    // Handle design object
+    if (req.body.designType || req.body.primaryColor || req.body.secondaryColor || 
+        req.body.hexCode || req.body.pattern || req.body.customizable !== undefined) {
+      updateData.design = {
+        type: req.body.designType,
+        color: {
+          primary: req.body.primaryColor,
+          secondary: req.body.secondaryColor,
+          hexCode: req.body.hexCode
+        },
+        pattern: req.body.pattern,
+        customizable: req.body.customizable === 'true' || req.body.customizable === true
+      };
+    }
+    
+    // Handle features array
+    if (req.body.features) {
+      updateData.Features = req.body.features.split(',').map(f => f.trim()).filter(f => f);
+    }
+    
+    console.log('Update data prepared:', updateData);
+    
+    const doc = await updateProduct(req.params.id, updateData);
+    res.status(200).json({ success: true, data: doc });
+  } catch (error) {
+    console.error('Update product error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to update product'
+    });
+  }
 });
 
 exports.remove = asyncHandler(async (req, res) => {

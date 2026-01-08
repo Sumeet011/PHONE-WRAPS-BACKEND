@@ -38,7 +38,7 @@ exports.getCart = asyncHandler(async (req, res) => {
           // Clean up: products shouldn't have customDesign
           delete itemObj.customDesign;
         } else if (item.type === 'collection') {
-          productDetails = await Collection.findById(item.productId).select('name heroImage').lean();
+          productDetails = await Collection.findById(item.productId).select('name heroImage type plateprice').lean();
           if (!productDetails) {
             console.warn(`⚠️ Collection not found for ID: ${item.productId}`);
           } else {
@@ -76,8 +76,12 @@ exports.getCart = asyncHandler(async (req, res) => {
     })
   );
 
-  // Calculate total
-  const total = populatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  // Calculate total (including plate prices for gaming collections)
+  const total = populatedItems.reduce((sum, item) => {
+    const itemTotal = item.price * item.quantity;
+    const plateTotal = (item.plateQuantity || 0) * (item.platePrice || 0);
+    return sum + itemTotal + plateTotal;
+  }, 0);
 
   // Debug logging
   console.log('Cart items with product details:', JSON.stringify(populatedItems.map(item => ({
@@ -110,8 +114,10 @@ exports.getCart = asyncHandler(async (req, res) => {
 exports.addItem = asyncHandler(async (req, res) => {
   const userId = req.user._id || req.user.id;
   
-  const { type, productId, quantity = 1, selectedBrand, selectedModel, price, customDesign } = req.body;
-  console.log('Adding item to cart:', { type, productId, quantity, selectedBrand, selectedModel });
+  const { type, productId, quantity = 1, selectedBrand, selectedModel, price, customDesign, plateQuantity, platePrice } = req.body;
+  console.log('🛒 Adding item to cart:', { type, productId, quantity, selectedBrand, selectedModel, plateQuantity, platePrice });
+  console.log('📊 PlateQuantity type:', typeof plateQuantity, 'Value:', plateQuantity);
+  console.log('📊 PlatePrice type:', typeof platePrice, 'Value:', platePrice);
 
   if (!productId || !price) {
     return res.status(400).json({ 
@@ -150,7 +156,20 @@ exports.addItem = asyncHandler(async (req, res) => {
 
   if (existingItemIndex > -1) {
     // Update quantity
+    const oldQuantity = cart.items[existingItemIndex].quantity;
     cart.items[existingItemIndex].quantity += quantity;
+    
+    // Update plate info if provided (for gaming collections)
+    // For plates, we need to scale them proportionally to the quantity increase
+    if (plateQuantity !== undefined) {
+      const oldPlateQuantity = cart.items[existingItemIndex].plateQuantity || 0;
+      // Add the same number of plates as the quantity being added
+      cart.items[existingItemIndex].plateQuantity = oldPlateQuantity + plateQuantity;
+      console.log(`🎮 Gaming collection plate update: Old plates: ${oldPlateQuantity}, Adding: ${plateQuantity}, New total: ${cart.items[existingItemIndex].plateQuantity}`);
+    }
+    if (platePrice !== undefined) {
+      cart.items[existingItemIndex].platePrice = platePrice;
+    }
   } else {
     // Add new item with appropriate structure based on type
     const newItem = { 
@@ -161,6 +180,14 @@ exports.addItem = asyncHandler(async (req, res) => {
       selectedModel: selectedModel || '', 
       price
     };
+    
+    // Add plate info for gaming collections
+    if (plateQuantity !== undefined) {
+      newItem.plateQuantity = plateQuantity;
+    }
+    if (platePrice !== undefined) {
+      newItem.platePrice = platePrice;
+    }
     
     // Only include customDesign object for custom-design type
     if (type === 'custom-design' && customDesign) {
@@ -176,8 +203,24 @@ exports.addItem = asyncHandler(async (req, res) => {
   }
 
   await cart.save();
+  
+  // Log the saved cart item details for gaming collections
+  if (type === 'collection') {
+    const savedItem = cart.items[cart.items.length - 1];
+    console.log('✅ Cart saved. Item details:', {
+      type: savedItem.type,
+      quantity: savedItem.quantity,
+      plateQuantity: savedItem.plateQuantity,
+      platePrice: savedItem.platePrice
+    });
+  }
 
-  const total = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  // Calculate total (including plate prices for gaming collections)
+  const total = cart.items.reduce((sum, item) => {
+    const itemTotal = item.price * item.quantity;
+    const plateTotal = (item.plateQuantity || 0) * (item.platePrice || 0);
+    return sum + itemTotal + plateTotal;
+  }, 0);
 
   res.status(200).json({ 
     success: true, 
@@ -197,7 +240,7 @@ exports.addItem = asyncHandler(async (req, res) => {
 exports.updateItem = asyncHandler(async (req, res) => {
   const userId = req.user._id || req.user.id;
   const { productId } = req.params;
-  const { quantity } = req.body;
+  const { quantity, plateQuantity } = req.body;
 
   if (!quantity || quantity < 1) {
     return res.status(400).json({ 
@@ -223,9 +266,20 @@ exports.updateItem = asyncHandler(async (req, res) => {
   }
 
   item.quantity = quantity;
+  
+  // Update plate quantity if provided
+  if (plateQuantity !== undefined) {
+    item.plateQuantity = plateQuantity;
+  }
+
   await cart.save();
 
-  const total = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  // Calculate total (including plate prices for gaming collections)
+  const total = cart.items.reduce((sum, item) => {
+    const itemTotal = item.price * item.quantity;
+    const plateTotal = (item.plateQuantity || 0) * (item.platePrice || 0);
+    return sum + itemTotal + plateTotal;
+  }, 0);
 
   res.status(200).json({ 
     success: true, 
@@ -259,7 +313,12 @@ exports.removeItem = asyncHandler(async (req, res) => {
     });
   }
 
-  const total = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  // Calculate total (including plate prices for gaming collections)
+  const total = cart.items.reduce((sum, item) => {
+    const itemTotal = item.price * item.quantity;
+    const plateTotal = (item.plateQuantity || 0) * (item.platePrice || 0);
+    return sum + itemTotal + plateTotal;
+  }, 0);
 
   res.status(200).json({ 
     success: true, 

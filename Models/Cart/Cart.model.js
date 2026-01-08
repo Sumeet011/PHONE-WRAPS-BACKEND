@@ -29,6 +29,17 @@ const CartItemSchema = new Schema({
     required: true,
     min: 0
   },
+  // Gaming collection plate fields
+  plateQuantity: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  platePrice: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
   // Custom design specific fields (only for type: 'custom-design')
   customDesign: {
     type: {

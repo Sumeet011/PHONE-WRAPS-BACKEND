@@ -36,6 +36,7 @@ const siteSettingsRoutes = require('./routes/siteSettings.routes');
 const collectionTooltipRoutes = require('./routes/collectionTooltip.routes');
 const phoneBrandRoutes = require('./routes/phoneBrand.routes');
 const suggestedProductRoutes = require('./routes/suggestedProduct.routes');
+const featuredHomeProductRoutes = require('./routes/featuredHomeProduct.routes');
 
 // Create Express app
 const app = express();
@@ -74,6 +75,7 @@ app.use('/api/site-settings', siteSettingsRoutes);
 app.use('/api/collection-tooltips', collectionTooltipRoutes);
 app.use('/api/phone-brands', phoneBrandRoutes);
 app.use('/api/suggested-products', suggestedProductRoutes);
+app.use('/api/featured-home-products', featuredHomeProductRoutes);
 
 // Default 404 handler
 app.use((req, res, next) => {

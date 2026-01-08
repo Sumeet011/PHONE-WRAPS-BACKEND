@@ -33,7 +33,7 @@ const generateOTP = () => {
  */
 const sendEmailOTP = async (email, otp) => {
   // TODO: Integrate with email service (SendGrid, Nodemailer, etc.)
-  console.log(`📧 Sending OTP to ${email}: ${otp}`);
+  //console.log(`📧 Sending OTP to ${email}: ${otp}`);
   
   // For development, just log it
   // In production, use actual email service:
@@ -54,7 +54,7 @@ const sendEmailOTP = async (email, otp) => {
  */
 const sendSMSOTP = async (phone, otp) => {
   // TODO: Integrate with SMS service (Twilio, AWS SNS, etc.)
-  console.log(`📱 Sending OTP to ${phone}: ${otp}`);
+  //console.log(`📱 Sending OTP to ${phone}: ${otp}`);
   
   // For development, just log it
   // In production, use actual SMS service:
@@ -316,7 +316,7 @@ exports.resendOTP = asyncHandler(async (req, res) => {
 exports.getProfile = asyncHandler(async (req, res) => {
   const userId = req.params.userId || req.user?._id || req.user?.id;
 
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).populate('gamingCollections.cards.productId');
 
   if (!user) {
     return res.status(404).json({
@@ -324,6 +324,27 @@ exports.getProfile = asyncHandler(async (req, res) => {
       message: 'User not found'
     });
   }
+
+  // Populate level information for gaming collections cards from Product documents
+  const gamingCollections = (user.gamingCollections || []).map(collection => {
+    const cards = (collection.cards || []).map(card => {
+      // If level is not already stored, get it from the populated product
+      const level = card.level || (card.productId?.level);
+      return {
+        productId: card.productId?._id || card.productId,
+        name: card.name,
+        image: card.image,
+        level: level
+      };
+    });
+    
+    return {
+      collectionId: collection.collectionId,
+      collectionName: collection.collectionName,
+      collectionImage: collection.collectionImage,
+      cards: cards
+    };
+  });
 
   res.status(200).json({
     success: true,
@@ -342,7 +363,7 @@ exports.getProfile = asyncHandler(async (req, res) => {
       addresses: user.addresses || [],
       unlockedProducts: user.unlockedProducts || [],
       unlockedCollections: user.unlockedCollections || [],
-      gamingCollections: user.gamingCollections || [],
+      gamingCollections: gamingCollections,
       standardProducts: user.standardProducts || [],
       createdAt: user.createdAt
     }
@@ -1247,5 +1268,51 @@ exports.updateAddressByUserId = asyncHandler(async (req, res) => {
     success: true,
     message: 'Address updated successfully',
     data: user.addresses
+  });
+});
+/**
+ * @route   GET /api/users/all
+ * @desc    Get all users with their order information (Admin only)
+ * @access  Private/Admin
+ */
+exports.getAllUsers = asyncHandler(async (req, res) => {
+  //console.log('🔥 getAllUsers endpoint hit!');
+  //console.log('User from auth:', req.user);
+  
+  const Order = require('../../Models/Order/Order.model');
+
+  // Fetch all users
+  const users = await User.find({})
+    .select('username email phoneNumber emailVerified role score gamingCollections standardProducts createdAt')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  //console.log(`✅ Found ${users.length} users`);
+
+  // Fetch orders for each user
+  const usersWithOrders = await Promise.all(
+    users.map(async (user) => {
+      const orders = await Order.find({ userId: user._id })
+        .select('orderId totalAmount status createdAt items')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      return {
+        ...user,
+        ordersCount: orders.length,
+        orders: orders,
+        totalSpent: orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0),
+        gamingCollectionsCount: user.gamingCollections?.length || 0,
+        standardProductsCount: user.standardProducts?.length || 0
+      };
+    })
+  );
+
+  //console.log('📤 Sending response with users');
+
+  res.status(200).json({
+    success: true,
+    data: usersWithOrders,
+    total: usersWithOrders.length
   });
 });

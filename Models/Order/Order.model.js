@@ -63,6 +63,20 @@ const OrderSummarySchema = new Schema({
         collectionName: {
             type: String
         },
+        // Gaming product level
+        level: {
+            type: Number
+        },
+        // Gaming collection plate fields
+        hasPlate: {
+            type: Boolean,
+            default: false
+        },
+        platePrice: {
+            type: Number,
+            min: 0,
+            default: 0
+        },
         // Custom Design specific fields
         customDesign: {
             designImageUrl: {
@@ -79,6 +93,37 @@ const OrderSummarySchema = new Schema({
                 scale: { type: Number, default: 1 },
                 rotation: { type: Number, default: 0 }
             }
+        }
+    }],
+    
+    // Plates - Separate from products
+    plates: [{
+        collectionId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Collection',
+            required: true
+        },
+        collectionName: {
+            type: String,
+            required: true
+        },
+        collectionImage: {
+            type: String
+        },
+        quantity: {
+            type: Number,
+            required: true,
+            min: 1
+        },
+        pricePerPlate: {
+            type: Number,
+            required: true,
+            min: 0
+        },
+        totalPrice: {
+            type: Number,
+            required: true,
+            min: 0
         }
     }],
     
@@ -322,6 +367,70 @@ const OrderSummarySchema = new Schema({
     },
     refundedAt: {
         type: Date
+    },
+    
+    // Return Request Information
+    returnRequest: {
+        isRequested: {
+            type: Boolean,
+            default: false
+        },
+        requestedAt: {
+            type: Date
+        },
+        items: [{
+            productId: {
+                type: Schema.Types.ObjectId,
+                ref: 'Product'
+            },
+            productName: {
+                type: String
+            },
+            phoneModel: {
+                type: String
+            },
+            quantity: {
+                type: Number
+            },
+            reason: {
+                type: String,
+                trim: true
+            }
+        }],
+        plates: [{
+            collectionId: {
+                type: Schema.Types.ObjectId,
+                ref: 'Collection',
+                required: true
+            },
+            collectionName: {
+                type: String,
+                required: true
+            },
+            quantity: {
+                type: Number,
+                required: true
+            },
+            reason: {
+                type: String,
+                trim: true
+            }
+        }],
+        status: {
+            type: String,
+            enum: ['Pending', 'Approved', 'Rejected', 'Completed'],
+            default: 'Pending'
+        },
+        adminNote: {
+            type: String,
+            trim: true
+        },
+        processedAt: {
+            type: Date
+        },
+        processedBy: {
+            type: String
+        }
     },
     
     // Invoice & Documentation

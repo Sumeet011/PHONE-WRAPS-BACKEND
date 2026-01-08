@@ -18,7 +18,20 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'phone-wraps-products',
     allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1000, height: 1000, crop: 'limit' }]
+    format: async (req, file) => {
+      // Preserve PNG format for images with transparency
+      if (file.mimetype === 'image/png') {
+        return 'png';
+      }
+      return 'jpg';
+    },
+    transformation: [{ 
+      width: 1000, 
+      height: 1000, 
+      crop: 'limit',
+      quality: 'auto',
+      flags: 'preserve_transparency' // Preserve alpha channel for PNG images
+    }]
   }
 });
 

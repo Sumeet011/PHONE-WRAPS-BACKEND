@@ -3,12 +3,21 @@ const { Schema, model } = require('mongoose');
 const UserSchema = new Schema({
     username: {
         type: String,
-        required: true,
+        trim: true,
+        minlength: 2,
+        maxlength: 100
+    },
+    name: {
+        type: String,
         trim: true,
         minlength: 2,
         maxlength: 100
     },
     phoneNumber: {
+        type: String,
+        trim: true
+    },
+    phone: {
         type: String,
         trim: true
     },
@@ -20,11 +29,30 @@ const UserSchema = new Schema({
     },
     password: {
         type: String,
-        required: true,
         minlength: 6,
         select: false // Don't return password by default in queries
     },
-    
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user'
+    },
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
+    emailVerified: {
+        type: Boolean,
+        default: false
+    },
+    otp: {
+        type: String,
+        select: false
+    },
+    otpExpiry: {
+        type: Date,
+        select: false
+    },
     profilePicture: {
         type: String,
         default: ''
@@ -32,6 +60,15 @@ const UserSchema = new Schema({
     Address: {
         type: String,
     },
+    addresses: [{
+        label: { type: String, default: 'Home' },
+        street: String,
+        city: String,
+        state: String,
+        zipCode: String,
+        country: { type: String, default: 'India' },
+        isDefault: { type: Boolean, default: false }
+    }],
     unlockedProducts: [{
         type: Schema.Types.ObjectId,
         ref: 'Product'
@@ -54,7 +91,8 @@ const UserSchema = new Schema({
                 ref: 'Product'
             },
             name: String,
-            image: String
+            image: String,
+            level: Number
         }]
     }],
     // Standard products (not part of gaming collections)

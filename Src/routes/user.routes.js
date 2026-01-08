@@ -20,6 +20,7 @@ const {
   deleteAddress,
   getAddresses,
   logout,
+  getAllUsers,
   errorHandler
 } = require('../controllers/user.controller');
 
@@ -29,10 +30,13 @@ const {
  */
 const protect = (req, res, next) => {
   try {
+    console.log('🔒 protect middleware hit');
     // Get token from header
     const authHeader = req.headers.authorization;
+    console.log('Auth header:', authHeader);
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('❌ No auth header or invalid format');
       return res.status(401).json({
         success: false,
         message: 'No token provided. Please login.'
@@ -48,8 +52,13 @@ const protect = (req, res, next) => {
       process.env.JWT_SECRET || 'your-secret-key-change-this'
     );
 
-    // Attach user ID to request
-    req.user = { _id: decoded.id, id: decoded.id };
+    console.log('Decoded token:', decoded);
+
+    // Attach user ID to request - handle both 'id' and 'userId' fields
+    const userId = decoded.id || decoded.userId;
+    req.user = { _id: userId, id: userId, role: decoded.role };
+    
+    console.log('Set req.user:', req.user);
     
     next();
   } catch (error) {
@@ -80,10 +89,22 @@ const protect = (req, res, next) => {
  */
 const adminOnly = async (req, res, next) => {
   try {
+    console.log('👮 adminOnly middleware hit');
+    console.log('req.user:', req.user);
+    
+    // If role is already in token and is admin, allow access
+    if (req.user.role === 'admin') {
+      console.log('✅ Admin role found in token');
+      return next();
+    }
+
+    // Otherwise, check database
     const User = require('../../Models/User/User.model');
     const user = await User.findById(req.user._id);
+    console.log('Found user:', user?.username, 'Role:', user?.role);
 
     if (!user) {
+      console.log('❌ User not found in DB');
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -99,6 +120,7 @@ const adminOnly = async (req, res, next) => {
 
     next();
   } catch (error) {
+    console.error('Admin middleware error:', error);
     return res.status(500).json({
       success: false,
       message: 'Authorization check failed'
@@ -280,12 +302,21 @@ router.get('/', protect, adminOnly, async (req, res) => {
 });
 
 /**
+ * @route   GET /api/users/all
+ * @desc    Get all users with their order information
+ * @access  Private/Admin
+ */
+console.log('🔧 Registering /all route');
+router.get('/all', protect, adminOnly, getAllUsers);
+
+/**
  * @route   GET /api/users/:userId
  * @desc    Get specific user by ID (Admin only)
  * @access  Private/Admin
  * @params  userId - MongoDB ObjectId of user
  * @headers Authorization: Bearer <token>
  */
+console.log('🔧 Registering /:userId route');
 router.get('/:userId', protect, adminOnly, async (req, res) => {
   try {
     const User = require('../../Models/User/User.model');

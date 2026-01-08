@@ -80,7 +80,9 @@ const validateOrderData = (orderData) => {
 // Calculate order total
 const calculateOrderTotal = (items, deliveryFee = 0, discount = 0) => {
     const subtotal = items.reduce((total, item) => {
-        return total + (item.price * item.quantity);
+        const itemTotal = item.price * item.quantity;
+        const plateTotal = (item.plateQuantity && item.platePrice) ? (item.plateQuantity * item.platePrice) : 0;
+        return total + itemTotal + plateTotal;
     }, 0);
     
     const finalTotal = subtotal + deliveryFee - discount;
@@ -94,9 +96,10 @@ const calculateOrderTotal = (items, deliveryFee = 0, discount = 0) => {
  */
 const processCollectionItems = async (userId, collectionItem) => {
     try {
-        const { productId: collectionId, quantity, selectedBrand, selectedModel, price } = collectionItem;
+        const { productId: collectionId, quantity, selectedBrand, selectedModel, price, plateQuantity, platePrice } = collectionItem;
         
         console.log(`🎴 Processing collection ${collectionId} for user ${userId}`);
+        console.log(`📦 Quantity: ${quantity}, Plates: ${plateQuantity || 0}`);
         
         // Fetch collection details
         const collection = await collectionModel.findById(collectionId).populate('Products');
@@ -159,9 +162,11 @@ const processCollectionItems = async (userId, collectionItem) => {
             console.log(`✓ Random selection: ${selectedProducts.length} cards from ${availableProducts.length} available`);
         }
 
-        // Convert to order items
-        const orderItems = selectedProducts.map(product => ({
-            itemType: 'product', // Convert collection to individual products
+        // Convert to order items - each card is separate, plates are handled separately
+        const pricePerCard = price / quantity;
+        
+        const orderItems = selectedProducts.map((product, index) => ({
+            itemType: 'product',
             productId: product._id,
             productName: product.name,
             collectionId: collection._id,
@@ -171,12 +176,25 @@ const processCollectionItems = async (userId, collectionItem) => {
             selectedBrand,
             selectedModel,
             quantity: 1,
-            price: price / quantity, // Divide price evenly
-            image: product.image || product.images?.[0] // Handle both single image and images array
+            price: pricePerCard,
+            image: product.image || product.images?.[0],
+            level: product.level
         }));
 
-        console.log(`✓ Created ${orderItems.length} order items with images`);
-        return orderItems;
+        console.log(`✓ Created ${orderItems.length} order items (plates handled separately)`);
+        console.log(`  Price per card: ₹${pricePerCard}`);
+        
+        return {
+            items: orderItems,
+            plates: plateQuantity > 0 ? {
+                collectionId: collection._id,
+                collectionName: collection.name,
+                collectionImage: collection.heroImage,
+                quantity: plateQuantity,
+                pricePerPlate: platePrice || 0,
+                totalPrice: (plateQuantity || 0) * (platePrice || 0)
+            } : null
+        };
     } catch (error) {
         console.error('❌ Error processing collection:', error.message);
         throw error;
@@ -236,37 +254,57 @@ const placeOrderStripe = async (req,res) => {
             await couponModel.findOneAndUpdate({ code: coupon }, { $inc: { usedCount: 1 } });
         }
 
-        const line_items = items.map((item) => ({
-            price_data: {
-                currency: currency,
-                product_data: { name: sanitizeInput(item.name) },
-                unit_amount: Math.round(item.price * 100)
-            },
-            quantity: item.quantity
-        }));
 
-        if (deliveryCharge > 0) {
-            line_items.push({
-                price_data: {
-                    currency: currency,
-                    product_data: { name: 'Delivery Charges' },
-                    unit_amount: Math.round(deliveryCharge * 100)
-                },
-                quantity: 1
-            });
-        }
+        // Separate items and plates from request
+        const returnItems = (items || []).map(item => {
+            let orderItem = order.items[item.itemIndex];
+            if (!orderItem) {
+                orderItem = order.items.find(
+                    oi => oi.productName === item.productName && 
+                          oi.phoneModel === item.phoneModel
+                );
+            }
+            if (!orderItem) {
+                console.error(`❌ Item not found in order:`, item);
+                throw new Error(`Item not found in order: ${item.productName}`);
+            }
+            return {
+                productId: orderItem.productId,
+                productName: orderItem.productName,
+                phoneModel: orderItem.phoneModel,
+                quantity: item.quantity || orderItem.quantity,
+                reason: item.reason || 'No reason provided'
+            };
+        });
 
-        if (discount > 0) {
-            line_items.push({
-                price_data: {
-                    currency: currency,
-                    product_data: { name: 'Discount' },
-                    unit_amount: -Math.round(discount * 100),
-                },
-                quantity: 1,
-            });
-        }
+        // Handle returned plates
+        const returnPlates = (req.body.plates || []).map(plate => {
+            let orderPlate = order.plates[plate.plateIndex];
+            if (!orderPlate) {
+                orderPlate = order.plates.find(
+                    p => p.collectionId?.toString() === plate.collectionId?.toString() &&
+                         p.collectionName === plate.collectionName
+                );
+            }
+            if (!orderPlate) {
+                console.error(`❌ Plate not found in order:`, plate);
+                throw new Error(`Plate not found in order: ${plate.collectionName}`);
+            }
+            return {
+                collectionId: orderPlate.collectionId,
+                collectionName: orderPlate.collectionName,
+                quantity: plate.quantity || orderPlate.quantity,
+                reason: plate.reason || 'No reason provided'
+            };
+        });
 
+        order.returnRequest = {
+            isRequested: true,
+            requestedAt: new Date(),
+            items: returnItems,
+            plates: returnPlates,
+            status: 'Pending'
+        };
         const session = await stripe.checkout.sessions.create({
             success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
             cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
@@ -415,8 +453,25 @@ const createRazorpayOrder = async (req, res) => {
         console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
 
         // Calculate totals using ORIGINAL cart prices (not processed/divided prices)
-        const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        console.log('💰 Calculating totals from items:', items.map(i => ({
+            name: i.name,
+            price: i.price,
+            quantity: i.quantity,
+            platePrice: i.platePrice,
+            plateQuantity: i.plateQuantity
+        })));
+        
+        const subtotal = items.reduce((sum, item) => {
+            const itemTotal = item.price * item.quantity;
+            const plateTotal = (item.plateQuantity && item.platePrice) ? (item.plateQuantity * item.platePrice) : 0;
+            console.log(`  Item: ${item.name}, Cards: ₹${itemTotal}, Plates: ₹${plateTotal} (qty: ${item.plateQuantity}, price: ${item.platePrice})`);
+            return sum + itemTotal + plateTotal;
+        }, 0);
         const shippingCost = deliveryCharge;
+        
+        console.log(`💰 Razorpay Order Calculation:
+  Subtotal: ₹${subtotal}
+  Shipping: ₹${shippingCost}`);
         
         // Handle multiple coupons
         let appliedCoupons = [];
@@ -494,6 +549,8 @@ const createRazorpayOrder = async (req, res) => {
             if (item.collectionId) formattedItem.collectionId = item.collectionId;
             if (item.collectionName) formattedItem.collectionName = item.collectionName;
             if (item.collectionImage) formattedItem.collectionImage = item.collectionImage;
+            if (item.hasPlate !== undefined) formattedItem.hasPlate = item.hasPlate;
+            if (item.platePrice !== undefined) formattedItem.platePrice = item.platePrice;
             if (item.image) formattedItem.image = item.image;
             if (item.customDesign) formattedItem.customDesign = item.customDesign;
 
@@ -856,6 +913,7 @@ const verifyRazorpay = async (req, res) => {
 
             // Process collection items - convert them to actual products
             const processedItems = [];
+            const processedPlates = []; // Separate array for plates
             const originalItemsMap = {}; // Map to preserve original cart data
             
             console.log(`\n🔍 === PROCESSING ${items.length} CART ITEMS ===`);
@@ -864,6 +922,7 @@ const verifyRazorpay = async (req, res) => {
                 console.log(`   - Type: ${item.type}`);
                 console.log(`   - ProductId: ${item.productId}`);
                 console.log(`   - Quantity: ${item.quantity}`);
+                console.log(`   - Plates: ${item.plateQuantity || 0}`);
                 
                 // Store original cart item for reference
                 const itemKey = `${item.productId}_${item.type}`;
@@ -877,10 +936,17 @@ const verifyRazorpay = async (req, res) => {
                 if (item.type === 'collection') {
                     try {
                         console.log(`🎴 Processing collection: ${item.name || item.productId}`);
-                        const collectionProducts = await processCollectionItems(validUserId, item);
-                        processedItems.push(...collectionProducts);
-                        console.log(`✓ Collection expanded to ${collectionProducts.length} products`);
-                        console.log(`   Products:`, collectionProducts.map(p => ({
+                        const result = await processCollectionItems(validUserId, item);
+                        processedItems.push(...result.items);
+                        
+                        // Add plates separately if present
+                        if (result.plates) {
+                            processedPlates.push(result.plates);
+                            console.log(`✓ Added ${result.plates.quantity} plates for collection`);
+                        }
+                        
+                        console.log(`✓ Collection expanded to ${result.items.length} products`);
+                        console.log(`   Products:`, result.items.map(p => ({
                             name: p.productName,
                             image: p.image ? 'yes' : 'no',
                             collectionImage: p.collectionImage ? 'yes' : 'no'
@@ -940,8 +1006,18 @@ const verifyRazorpay = async (req, res) => {
             console.log(`✓ Processed items: ${items.length} cart items → ${processedItems.length} order items`);
 
             // Calculate totals using ORIGINAL cart prices (not processed/divided prices)
-            const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            // MUST include plate prices!
+            const subtotal = items.reduce((sum, item) => {
+                const itemTotal = item.price * item.quantity;
+                const plateTotal = (item.plateQuantity && item.platePrice) ? (item.plateQuantity * item.platePrice) : 0;
+                console.log(`  💰 ${item.name}: Cards ₹${itemTotal} + Plates ₹${plateTotal} (qty: ${item.plateQuantity || 0}, price: ${item.platePrice || 0})`);
+                return sum + itemTotal + plateTotal;
+            }, 0);
             const shippingCost = deliveryCharge;
+            
+            console.log(`💰 Order Totals:
+  Subtotal (with plates): ₹${subtotal}
+  Shipping: ₹${shippingCost}`);
             
             // Calculate total discount from all applied coupons
             let totalDiscount = 0;
@@ -996,6 +1072,9 @@ const verifyRazorpay = async (req, res) => {
                 if (item.collectionId) formattedItem.collectionId = item.collectionId;
                 if (item.collectionName) formattedItem.collectionName = item.collectionName;
                 if (item.collectionImage) formattedItem.collectionImage = item.collectionImage;
+                if (item.level) formattedItem.level = item.level;
+                if (item.hasPlate !== undefined) formattedItem.hasPlate = item.hasPlate;
+                if (item.platePrice !== undefined) formattedItem.platePrice = item.platePrice;
                 if (item.image) formattedItem.image = item.image;
                 if (item.customDesign) formattedItem.customDesign = item.customDesign;
                 
@@ -1004,6 +1083,19 @@ const verifyRazorpay = async (req, res) => {
             
             console.log(`✓ Formatted ${formattedItems.length} items for order with images:`, 
                 formattedItems.map(i => ({ name: i.productName, hasImage: !!i.image, hasCollectionImage: !!i.collectionImage })));
+
+            // Format plates array
+            const formattedPlates = processedPlates.map(plate => ({
+                collectionId: plate.collectionId,
+                collectionName: plate.collectionName,
+                collectionImage: plate.collectionImage,
+                quantity: plate.quantity,
+                pricePerPlate: plate.pricePerPlate,
+                totalPrice: plate.totalPrice
+            }));
+            
+            console.log(`✓ Formatted ${formattedPlates.length} plate entries:`,
+                formattedPlates.map(p => ({ collection: p.collectionName, qty: p.quantity, total: p.totalPrice })));
 
             // Format shipping address
             const shippingAddress = {
@@ -1024,6 +1116,7 @@ const verifyRazorpay = async (req, res) => {
                 orderNumber: orderNumber,
                 userId: validUserId,
                 items: formattedItems,
+                plates: formattedPlates,
                 subtotal: subtotal,
                 discount: totalDiscount,
                 shippingCost: shippingCost,
@@ -1150,9 +1243,10 @@ const verifyRazorpay = async (req, res) => {
                                     collectionGroups[collId].cards.push({
                                         productId: item.productId,
                                         name: product.name,
-                                        image: imageUrl
+                                        image: imageUrl,
+                                        level: product.level || undefined
                                     });
-                                    console.log(`  ✅ Added card: ${product.name} (${imageUrl.substring(0, 50)}...)`);
+                                    console.log(`  ✅ Added card: ${product.name} ${product.level ? `(Level ${product.level})` : ''} (${imageUrl.substring(0, 50)}...)`);
                                 } else {
                                     console.log(`  ⚠️ Card already exists: ${product.name}`);
                                 }
@@ -1428,11 +1522,23 @@ const getOrderById = async (req, res) => {
 
         const order = await orderModel.findById(orderId)
             .populate('userId', 'name email')
-            .populate('items.productId', 'name image images price')
-            .populate('items.collectionId', 'name type heroImage');
+            .populate('items.productId', 'name image images price level type')
+            .populate('items.collectionId', 'name type heroImage')
+            .lean(); // Convert to plain JavaScript object to ensure all fields are included
 
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        // Populate level information for items from Product documents if not already present
+        if (order.items) {
+            order.items = order.items.map(item => {
+                // If level is not already stored in the order item, get it from the populated product
+                if (!item.level && item.productId?.level) {
+                    item.level = item.productId.level;
+                }
+                return item;
+            });
         }
 
         res.json({ success: true, order });
@@ -1592,7 +1698,11 @@ const placeOrderCOD = async (req, res) => {
                 const couponResult = await useCoupon(coupon);
                 if (couponResult.success) {
                     couponDiscountPercentage = couponResult.discountPercentage;
-                    const subtotalForCoupon = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                    const subtotalForCoupon = items.reduce((sum, item) => {
+                        const itemTotal = item.price * item.quantity;
+                        const plateTotal = (item.plateQuantity && item.platePrice) ? (item.plateQuantity * item.platePrice) : 0;
+                        return sum + itemTotal + plateTotal;
+                    }, 0);
                     discount = Math.round((subtotalForCoupon * couponDiscountPercentage) / 100);
                     console.log(`✅ Coupon applied! ${couponDiscountPercentage}% discount = ₹${discount}`);
                 }
@@ -1602,7 +1712,12 @@ const placeOrderCOD = async (req, res) => {
             }
         }
 
-        const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const subtotal = items.reduce((sum, item) => {
+            const itemTotal = item.price * item.quantity;
+            const plateTotal = (item.plateQuantity && item.platePrice) ? (item.plateQuantity * item.platePrice) : 0;
+            console.log(`  COD Item: ${item.name}, Cards: ₹${itemTotal}, Plates: ₹${plateTotal}`);
+            return sum + itemTotal + plateTotal;
+        }, 0);
         const shippingCost = deliveryCharge;
         const totalAmount = subtotal + shippingCost - discount;
 
@@ -1610,8 +1725,57 @@ const placeOrderCOD = async (req, res) => {
         const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const orderNumber = `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
+        // Process collection items - convert them to actual products
+        const processedItems = [];
+        const processedPlates = []; // Separate array for plates
+        
+        for (const item of items) {
+            if (item.type === 'collection') {
+                try {
+                    console.log(`🎴 Processing collection for COD: ${item.name || item.productId}`);
+                    const result = await processCollectionItems(validUserId, item);
+                    processedItems.push(...result.items);
+                    
+                    // Add plates separately if present
+                    if (result.plates) {
+                        processedPlates.push(result.plates);
+                        console.log(`✓ Added ${result.plates.quantity} plates for collection`);
+                    }
+                    
+                    console.log(`✓ Collection expanded to ${result.items.length} products`);
+                } catch (collectionError) {
+                    console.error(`❌ Failed to process collection:`, collectionError.message);
+                    // Fallback: Add collection as-is if processing fails
+                    processedItems.push({
+                        itemType: 'collection',
+                        productId: item.productId,
+                        productName: item.name || 'Collection',
+                        phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                        selectedBrand: item.selectedBrand,
+                        selectedModel: item.selectedModel,
+                        quantity: item.quantity,
+                        price: item.price
+                    });
+                }
+            } else {
+                // Regular product or custom design
+                processedItems.push({
+                    itemType: item.type || 'product',
+                    productId: item.productId,
+                    productName: item.name,
+                    phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                    selectedBrand: item.selectedBrand,
+                    selectedModel: item.selectedModel,
+                    quantity: item.quantity,
+                    price: item.price,
+                    image: item.image,
+                    customDesign: item.type === 'custom-design' ? item.customDesign : undefined
+                });
+            }
+        }
+
         // Format items for the schema
-        const formattedItems = items.map(item => {
+        const formattedItems = processedItems.map(item => {
             let productObjectId;
             
             if (mongoose.Types.ObjectId.isValid(item.productId)) {
@@ -1621,14 +1785,41 @@ const placeOrderCOD = async (req, res) => {
                 productObjectId = new mongoose.Types.ObjectId();
             }
             
-            return {
+            const formattedItem = {
                 productId: productObjectId,
-                productName: item.name,
-                phoneModel: item.selectedModel || item.selectedBrand || 'Universal',
+                productName: item.productName,
+                phoneModel: item.phoneModel,
+                selectedBrand: item.selectedBrand,
+                selectedModel: item.selectedModel,
                 quantity: item.quantity,
                 price: item.price
             };
+
+            // Add optional fields if they exist
+            if (item.collectionId) formattedItem.collectionId = item.collectionId;
+            if (item.collectionName) formattedItem.collectionName = item.collectionName;
+            if (item.collectionImage) formattedItem.collectionImage = item.collectionImage;
+            if (item.hasPlate !== undefined) formattedItem.hasPlate = item.hasPlate;
+            if (item.platePrice !== undefined) formattedItem.platePrice = item.platePrice;
+            if (item.image) formattedItem.image = item.image;
+            if (item.level) formattedItem.level = item.level;
+            if (item.itemType) formattedItem.itemType = item.itemType;
+            if (item.customDesign) formattedItem.customDesign = item.customDesign;
+
+            return formattedItem;
         });
+
+        // Format plates array
+        const formattedPlates = processedPlates.map(plate => ({
+            collectionId: plate.collectionId,
+            collectionName: plate.collectionName,
+            collectionImage: plate.collectionImage,
+            quantity: plate.quantity,
+            pricePerPlate: plate.pricePerPlate,
+            totalPrice: plate.totalPrice
+        }));
+        
+        console.log(`✓ COD Order - Formatted ${formattedPlates.length} plate entries`);
 
         // Format shipping address
         const shippingAddress = {
@@ -1648,6 +1839,7 @@ const placeOrderCOD = async (req, res) => {
             orderNumber: orderNumber,
             userId: validUserId,
             items: formattedItems,
+            plates: formattedPlates,
             subtotal: subtotal,
             discount: discount,
             shippingCost: shippingCost,
@@ -1978,6 +2170,193 @@ const cancelOrder = async (req, res) => {
     }
 };
 
+// Submit return request from customer
+const submitReturnRequest = async (req, res) => {
+    try {
+
+        const { orderId, items, plates, userId } = req.body;
+
+        // Accept if either items or plates is a non-empty array
+        const hasItems = items && Array.isArray(items) && items.length > 0;
+        const hasPlates = plates && Array.isArray(plates) && plates.length > 0;
+        if (!orderId || (!hasItems && !hasPlates)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Order ID and at least one item or plate is required' 
+            });
+        }
+
+        const order = await orderModel.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        // Verify order belongs to user
+        if (order.userId.toString() !== userId) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        // Check if order is eligible for return (must be delivered)
+        if (order.status !== 'Delivered') {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Only delivered orders can be returned' 
+            });
+        }
+
+        // Check if return already requested
+        if (order.returnRequest && order.returnRequest.isRequested) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Return request already submitted for this order' 
+            });
+        }
+
+
+        // Separate items and plates from request
+        const returnItems = (items || []).map(item => {
+            let orderItem;
+            if (item.itemIndex !== undefined && order.items[item.itemIndex]) {
+                orderItem = order.items[item.itemIndex];
+                if (orderItem.productName !== item.productName) {
+                    orderItem = null;
+                }
+            }
+            if (!orderItem) {
+                orderItem = order.items.find(
+                    oi => oi.productName === item.productName && 
+                          oi.phoneModel === item.phoneModel
+                );
+            }
+            if (!orderItem) {
+                throw new Error(`Item not found in order: ${item.productName}`);
+            }
+            return {
+                productId: orderItem.productId,
+                productName: orderItem.productName,
+                phoneModel: orderItem.phoneModel,
+                quantity: item.quantity || orderItem.quantity,
+                reason: item.reason || 'No reason provided'
+            };
+        });
+
+        // Handle returned plates
+        const returnPlates = (req.body.plates || []).map(plate => {
+            let orderPlate = order.plates && order.plates[plate.plateIndex];
+            if (!orderPlate) {
+                orderPlate = order.plates?.find(
+                    p => p.collectionId?.toString() === plate.collectionId?.toString() &&
+                         p.collectionName === plate.collectionName
+                );
+            }
+            if (!orderPlate) {
+                throw new Error(`Plate not found in order: ${plate.collectionName}`);
+            }
+            return {
+                collectionId: orderPlate.collectionId,
+                collectionName: orderPlate.collectionName,
+                quantity: plate.quantity || orderPlate.quantity,
+                reason: plate.reason || 'No reason provided'
+            };
+        });
+
+        order.returnRequest = {
+            isRequested: true,
+            requestedAt: new Date(),
+            items: returnItems,
+            plates: returnPlates,
+            status: 'Pending'
+        };
+
+        await order.save();
+
+        console.log(`✅ Return request submitted for order: ${order.orderNumber}`);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Return request submitted successfully',
+            data: order.returnRequest
+        });
+    } catch (error) {
+        console.error('❌ Error submitting return request:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to submit return request'
+        });
+    }
+};
+
+// Get return requests (for admin)
+const getReturnRequests = async (req, res) => {
+    try {
+        const orders = await orderModel.find({
+            'returnRequest.isRequested': true
+        })
+        .populate('userId', 'username email phoneNumber')
+        .sort({ 'returnRequest.requestedAt': -1 });
+
+        return res.status(200).json({
+            success: true,
+            data: orders
+        });
+    } catch (error) {
+        console.error('❌ Error fetching return requests:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch return requests'
+        });
+    }
+};
+
+// Update return request status (for admin)
+const updateReturnStatus = async (req, res) => {
+    try {
+        const { orderId, status, adminNote } = req.body;
+
+        if (!orderId || !status) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Order ID and status are required' 
+            });
+        }
+
+        const order = await orderModel.findById(orderId);
+        
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (!order.returnRequest || !order.returnRequest.isRequested) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'No return request found for this order' 
+            });
+        }
+
+        order.returnRequest.status = status;
+        order.returnRequest.adminNote = adminNote || '';
+        order.returnRequest.processedAt = new Date();
+        order.returnRequest.processedBy = 'Admin';
+
+        await order.save();
+
+        console.log(`✅ Return request ${status} for order: ${order.orderNumber}`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Return request ${status.toLowerCase()} successfully`,
+            data: order
+        });
+    } catch (error) {
+        console.error('❌ Error updating return status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update return status'
+        });
+    }
+};
+
 module.exports = {
     verifyRazorpay,
     placeOrderRazorpay, 
@@ -1992,5 +2371,8 @@ module.exports = {
     getLeaderboard,
     createOrderShipment,
     cancelOrderShipment,
-    cancelOrder
+    cancelOrder,
+    submitReturnRequest,
+    getReturnRequests,
+    updateReturnStatus
 };
