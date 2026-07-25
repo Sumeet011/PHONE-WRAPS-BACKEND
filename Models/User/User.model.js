@@ -1,0 +1,186 @@
+const { Schema, model } = require('mongoose');
+
+const UserSchema = new Schema({
+    username: {
+        type: String,
+        trim: true,
+        minlength: 2,
+        maxlength: 100
+    },
+    name: {
+        type: String,
+        trim: true,
+        minlength: 2,
+        maxlength: 100
+    },
+    phoneNumber: {
+        type: String,
+        trim: true
+    },
+    email: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    },
+    password: {
+        type: String,
+        minlength: 6,
+        select: false // Don't return password by default in queries
+    },
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user'
+    },
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
+    emailVerified: {
+        type: Boolean,
+        default: false
+    },
+    otp: {
+        type: String,
+        select: false
+    },
+    otpExpiry: {
+        type: Date,
+        select: false
+    },
+    phoneOTPRequestedAt: {
+        type: Date,
+        select: false
+    },
+    phoneOTPWindowStart: {
+        type: Date,
+        select: false
+    },
+    phoneOTPRequestCount: {
+        type: Number,
+        default: 0,
+        select: false
+    },
+    phoneOTPVerifyWindowStart: {
+        type: Date,
+        select: false
+    },
+    phoneOTPVerifyAttempts: {
+        type: Number,
+        default: 0,
+        select: false
+    },
+    profilePicture: {
+        type: String,
+        default: ''
+    },
+    Address: {
+        type: String,
+    },
+    addresses: [{
+        label: { type: String, default: 'Home' },
+        street: String,
+        city: String,
+        state: String,
+        zipCode: String,
+        country: { type: String, default: 'India' },
+        isDefault: { type: Boolean, default: false }
+    }],
+    unlockedProducts: [{
+        type: Schema.Types.ObjectId,
+        ref: 'Product'
+    }],
+    unlockedCollections: [{
+        type: Schema.Types.ObjectId,
+        ref: 'Collection'
+    }],
+    // New structure for gaming collections with their products
+    gamingCollections: [{
+        collectionId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Collection'
+        },
+        collectionName: String,
+        collectionImage: String,
+        cards: [{
+            productId: {
+                type: Schema.Types.ObjectId,
+                ref: 'Product'
+            },
+            name: String,
+            image: String,
+            level: Number
+        }]
+    }],
+    // Standard products (not part of gaming collections)
+    standardProducts: [{
+        productId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Product'
+        },
+        name: String,
+        image: String
+    }],
+    score: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    // Track failed login attempts for security
+    loginAttempts: {
+        type: Number,
+        default: 0,
+        select: false
+    },
+    lockUntil: {
+        type: Date,
+        select: false
+    }
+}, {
+    timestamps: true // Automatically manage createdAt and updatedAt
+});
+
+// Indexes for performance
+UserSchema.index({ email: 1 }, { unique: true, sparse: true });
+UserSchema.index({ phoneNumber: 1 }, { unique: true, sparse: true });
+UserSchema.index({ createdAt: -1 });
+UserSchema.index({ score: -1 }); // For leaderboards
+
+// Virtual for account lock status
+UserSchema.virtual('isLocked').get(function() {
+    return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+// Methods
+UserSchema.methods.incLoginAttempts = function() {
+    // Reset lock if expired
+    if (this.lockUntil && this.lockUntil < Date.now()) {
+        return this.updateOne({
+            $set: { loginAttempts: 1 },
+            $unset: { lockUntil: 1 }
+        });
+    }
+    
+    const updates = { $inc: { loginAttempts: 1 } };
+    const maxAttempts = 5;
+    const lockTime = 2 * 60 * 60 * 1000; // 2 hours
+    
+    // Lock account after max attempts
+    if (this.loginAttempts + 1 >= maxAttempts && !this.isLocked) {
+        updates.$set = { lockUntil: Date.now() + lockTime };
+    }
+    
+    return this.updateOne(updates);
+};
+
+UserSchema.methods.resetLoginAttempts = function() {
+    return this.updateOne({
+        $set: { loginAttempts: 0 },
+        $unset: { lockUntil: 1 }
+    });
+};
+
+const User = model("User", UserSchema);
+
+module.exports = User;
